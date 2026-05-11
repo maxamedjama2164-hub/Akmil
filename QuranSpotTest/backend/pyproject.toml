@@ -1,0 +1,41 @@
+[project]
+name = "quranspot-backend"
+version = "0.1.0"
+description = "Quran spot-test 1v1 backend (FastAPI + Tarteel Whisper)"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "sqlalchemy>=2.0",
+    "pydantic[email]>=2.9",
+    "pydantic-settings>=2.6",
+    "passlib[argon2]>=1.7.4",
+    "python-jose[cryptography]>=3.3",
+    "python-multipart>=0.0.20",
+    "httpx>=0.27",
+    "transformers>=4.46",
+    "torch>=2.4",
+    "torchaudio>=2.4",
+    "ffmpeg-python>=0.2",
+    "pyarabic>=0.6.15",
+    "rapidfuzz>=3.10",
+    "numpy>=1.26",
+    "requests>=2.32",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.7",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

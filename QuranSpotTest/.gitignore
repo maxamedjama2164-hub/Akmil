@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+backend/.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+*.tsbuildinfo
+
+# Runtime / generated
+data/app.sqlite
+data/app.sqlite-journal
+data/app.sqlite-wal
+data/app.sqlite-shm
+data/recordings/*
+!data/recordings/.gitkeep
+
+# Env
+.env
+.env.local
+.env.*.local
+*.secret
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
