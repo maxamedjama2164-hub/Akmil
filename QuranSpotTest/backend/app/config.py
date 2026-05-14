@@ -16,7 +16,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_hours: int = 24 * 7
 
-    whisper_model_id: str = "tarteel-ai/whisper-base-ar-quran"
+    # IJyad/whisper-large-v3-Tarteel — community fine-tune of OpenAI's
+    # whisper-large-v3 (~1.5B params) on Tarteel's Everyayah dataset.
+    # ~2–3% WER vs ~6% on the smaller tarteel-ai/whisper-base-ar-quran.
+    # Trade-off: ~3GB on disk, ~5–10× slower than base on CPU.
+    whisper_model_id: str = "IJyad/whisper-large-v3-Tarteel"
 
     cors_origins: list[str] = ["http://localhost:3000"]
 

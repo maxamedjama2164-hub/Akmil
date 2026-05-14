@@ -10,8 +10,9 @@ from pathlib import Path
 
 from app.config import settings
 
-MAX_AYAT_PER_TARGET = 2
-MAX_WORDS_PER_TARGET = 25
+# The reciter must say the next single ayah in full. We don't cap on words —
+# even Baqarah 282 (~130 words) is acceptable as the full target.
+MAX_AYAT_PER_TARGET = 1
 LAST_SURAH = 114
 
 
@@ -85,24 +86,63 @@ class QuranService:
             ).fetchone()
         return Ayah(**dict(row)) if row else None
 
+    def count_memorized_ayat(
+        self,
+        memorized_juz: set[int],
+        memorized_surahs: set[int],
+    ) -> int:
+        """Count of unique ayat covered by (memorized juz ∪ memorized surahs).
+
+        SQLite handles the de-duplication via UNION semantics naturally —
+        we use OR with COUNT(*) which counts each ayah row once.
+        """
+        if not memorized_juz and not memorized_surahs:
+            return 0
+        clauses: list[str] = []
+        params: list[int] = []
+        if memorized_juz:
+            placeholders = ",".join(["?"] * len(memorized_juz))
+            clauses.append(f"juz IN ({placeholders})")
+            params.extend(sorted(memorized_juz))
+        if memorized_surahs:
+            placeholders = ",".join(["?"] * len(memorized_surahs))
+            clauses.append(f"surah IN ({placeholders})")
+            params.extend(sorted(memorized_surahs))
+        sql = "SELECT COUNT(*) FROM ayah WHERE " + " OR ".join(clauses)
+        with self._conn() as c:
+            row = c.execute(sql, params).fetchone()
+        return int(row[0])
+
+    def is_ayah_memorized(
+        self,
+        surah: int,
+        ayah_number: int,
+        memorized_juz: set[int],
+        memorized_surahs: set[int],
+    ) -> bool:
+        """True if a given ayah falls inside the user's declared memorization."""
+        if surah in memorized_surahs:
+            return True
+        ayah = self.get_ayah(surah, ayah_number)
+        if ayah is None:
+            return False
+        return ayah.juz in memorized_juz
+
     def build_target(
         self,
         surah: int,
         start_ayah: int,
         max_ayat: int = MAX_AYAT_PER_TARGET,
-        max_words: int = MAX_WORDS_PER_TARGET,
     ) -> Target:
         """Build the text the reciter must produce after the picked ayah.
 
         Walks forward starting at (surah, start_ayah + 1), crossing surah
-        boundaries if necessary, until `max_ayat` ayat are collected or
-        the running word count meets/exceeds `max_words`. At end of Quran
-        we just stop early — the caller is responsible for not picking
-        the literal last ayah of An-Nas.
+        boundaries if necessary, until `max_ayat` ayat are collected. At
+        end of Quran we just stop early — the caller is responsible for
+        not picking the literal last ayah of An-Nas.
         """
         ayat: list[Ayah] = []
         s, a = surah, start_ayah + 1
-        word_count = 0
 
         while len(ayat) < max_ayat:
             ayah = self.get_ayah(s, a)
@@ -116,9 +156,6 @@ class QuranService:
                     break
 
             ayat.append(ayah)
-            word_count += len(ayah.text_simple.split())
-            if word_count >= max_words:
-                break
             a += 1
 
         return Target(

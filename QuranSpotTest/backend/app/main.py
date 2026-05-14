@@ -9,13 +9,15 @@ from app.config import settings
 from app.db import init_db
 from app.routes import (
     auth_routes,
+    coverage_routes,
     dev_routes,
     match_routes,
     quran_routes,
-    ratings_routes,
     score_routes,
+    solo_routes,
     ws_routes,
 )
+from app.services.invite_registry import InviteRegistry
 from app.services.matchmaker import Matchmaker
 from app.services.quran_service import QuranService
 from app.services.whisper_service import WhisperService
@@ -29,6 +31,7 @@ async def lifespan(app: FastAPI):
     init_db()
     app.state.quran = QuranService()
     app.state.matchmaker = Matchmaker()
+    app.state.invites = InviteRegistry()
     app.state.connections = ConnectionManager()
     log.info("loading Whisper model: %s", settings.whisper_model_id)
     app.state.whisper = WhisperService()
@@ -53,11 +56,12 @@ app.add_middleware(
 )
 
 app.include_router(auth_routes.router)
+app.include_router(coverage_routes.router)
 app.include_router(dev_routes.router)
 app.include_router(quran_routes.router)
 app.include_router(score_routes.router)
 app.include_router(match_routes.router)
-app.include_router(ratings_routes.router)
+app.include_router(solo_routes.router)
 app.include_router(ws_routes.router)
 
 

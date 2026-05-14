@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { use, useEffect, useRef, useState } from "react";
+import { use, useEffect, useMemo, useRef, useState } from "react";
 
 import { QuranPageViewer } from "@/components/QuranPageViewer";
 import { Recorder } from "@/components/Recorder";
 import { ApiError, api, getToken } from "@/lib/api";
-import { prettyTier } from "@/lib/types";
+import { LiveAudioReceiver } from "@/lib/live_audio";
 import type {
   MatchPlayer,
   MatchState,
@@ -15,7 +15,16 @@ import type {
   SurahMeta,
   User,
 } from "@/lib/types";
-import { WsClient, type MatchMessage } from "@/lib/ws";
+import { WsClient } from "@/lib/ws";
+
+type AudioMessage = {
+  type: "round_audio";
+  round_number: number;
+  mime: string;
+  audio_b64: string;
+};
+
+type MatchMessage = { type: "state"; match: MatchState } | AudioMessage;
 
 export default function MatchPage({
   params,
@@ -30,9 +39,10 @@ export default function MatchPage({
   const [surahs, setSurahs] = useState<SurahMeta[] | null>(null);
   const [match, setMatch] = useState<MatchState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Used to ignore stale WS state pushes while a user action's HTTP response
-  // is in flight (REST response carries the freshest match state).
+  // Round-number → blob URL for the recorded audio
+  const [audioByRound, setAudioByRound] = useState<Record<number, string>>({});
   const busyRef = useRef(false);
+  const wsRef = useRef<WsClient<MatchMessage> | null>(null);
 
   useEffect(() => {
     if (!getToken()) {
@@ -53,21 +63,41 @@ export default function MatchPage({
       });
   }, [router]);
 
-  // Subscribe to the match WS. The server pushes the full match state on
-  // every change (pick made, recording scored, match completed).
   useEffect(() => {
     if (!me) return;
     const ws = new WsClient<MatchMessage>(`/ws/match/${matchId}`);
+    wsRef.current = ws;
     const off = ws.onMessage((msg) => {
-      if (busyRef.current) return; // don't overwrite optimistic state
-      if (msg.type === "state") setMatch(msg.match);
+      if (msg.type === "state") {
+        if (!busyRef.current) setMatch(msg.match);
+      } else if (msg.type === "round_audio") {
+        const bytes = base64ToBytes(msg.audio_b64);
+        const blob = new Blob([bytes.buffer as ArrayBuffer], {
+          type: msg.mime,
+        });
+        const url = URL.createObjectURL(blob);
+        setAudioByRound((prev) => {
+          // Revoke any previous URL for this round to avoid leaks
+          if (prev[msg.round_number]) URL.revokeObjectURL(prev[msg.round_number]);
+          return { ...prev, [msg.round_number]: url };
+        });
+      }
     });
     ws.connect();
     return () => {
       off();
       ws.close();
+      wsRef.current = null;
     };
   }, [matchId, me]);
+
+  // Revoke blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      for (const url of Object.values(audioByRound)) URL.revokeObjectURL(url);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!me || !surahs) return <p className="p-6 text-slate-600">Loading…</p>;
   if (error && !match)
@@ -90,7 +120,7 @@ export default function MatchPage({
     match.player_a.id === me.id ? match.player_b : match.player_a;
   const myWins = match.player_a.id === me.id ? match.a_wins : match.b_wins;
   const oppWins = match.player_a.id === me.id ? match.b_wins : match.a_wins;
-  const currentRound = match.rounds.find((r) => r.status !== "scored") ?? null;
+  const currentRound = match.rounds.find((r) => !r.finalized) ?? null;
 
   return (
     <main className="min-h-screen p-4 md:p-6 max-w-6xl mx-auto">
@@ -102,10 +132,12 @@ export default function MatchPage({
           ← Lobby
         </Link>
         <h1 className="text-xl font-bold text-slate-900">
-          Match #{match.id}{" "}
-          <span className="text-slate-500 text-base font-normal">
-            · {prettyTier(match.tier)}
-          </span>
+          Match #{match.id}
+          {match.is_private && (
+            <span className="text-slate-500 text-base font-normal">
+              {" "}· private
+            </span>
+          )}
         </h1>
         <span
           className={`px-3 py-1 rounded text-xs font-semibold ${
@@ -136,7 +168,11 @@ export default function MatchPage({
       <RoundHistoryStrip match={match} meId={me.id} />
 
       {match.status === "completed" ? (
-        <CompletedView match={match} meId={me.id} />
+        <CompletedView
+          match={match}
+          meId={me.id}
+          audioByRound={audioByRound}
+        />
       ) : currentRound ? (
         <RoundView
           match={match}
@@ -144,7 +180,9 @@ export default function MatchPage({
           me={me}
           opponent={opponent}
           surahs={surahs}
+          audioByRound={audioByRound}
           busyRef={busyRef}
+          wsRef={wsRef}
           onMatchUpdate={setMatch}
         />
       ) : (
@@ -152,6 +190,13 @@ export default function MatchPage({
       )}
     </main>
   );
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
 }
 
 function PlayerLine({
@@ -186,13 +231,15 @@ function RoundHistoryStrip({
       {match.rounds.map((r) => {
         let cls = "bg-slate-100 border-slate-200 text-slate-500";
         let label = `R${r.number}`;
-        if (r.status === "scored") {
-          const meWasReciter = r.reciter_id === meId;
-          const iWon = meWasReciter ? r.passed : !r.passed;
+        if (r.finalized) {
+          const iWon = r.winner_id === meId;
           cls = iWon
             ? "bg-emerald-100 border-emerald-400 text-emerald-900"
             : "bg-red-100 border-red-400 text-red-900";
-          label = `R${r.number} ${iWon ? "W" : "L"}`;
+          label = `R${r.number} ${iWon ? "W" : "L"}${r.overridden ? "★" : ""}`;
+        } else if (r.transcript) {
+          cls = "bg-purple-100 border-purple-400 text-purple-900";
+          label = `R${r.number} review`;
         } else if (r.status === "picked") {
           cls = "bg-blue-100 border-blue-400 text-blue-900";
         } else {
@@ -217,7 +264,9 @@ function RoundView({
   me,
   opponent,
   surahs,
+  audioByRound,
   busyRef,
+  wsRef,
   onMatchUpdate,
 }: {
   match: MatchState;
@@ -225,56 +274,65 @@ function RoundView({
   me: User;
   opponent: MatchPlayer;
   surahs: SurahMeta[];
+  audioByRound: Record<number, string>;
   busyRef: React.MutableRefObject<boolean>;
+  wsRef: React.MutableRefObject<WsClient<MatchMessage> | null>;
   onMatchUpdate: (m: MatchState) => void;
 }) {
   const isPicker = round.picker_id === me.id;
   const isReciter = round.reciter_id === me.id;
 
-  // Show last scored round's outcome briefly while next round is waiting_for_pick
-  const lastScored = [...match.rounds]
-    .reverse()
-    .find((r) => r.number < round.number && r.status === "scored");
+  if (round.transcript && !round.finalized) {
+    return (
+      <ReviewPanel
+        match={match}
+        round={round}
+        isPicker={isPicker}
+        opponentName={opponent.display_name}
+        audioUrl={audioByRound[round.number] ?? null}
+        busyRef={busyRef}
+        onMatchUpdate={onMatchUpdate}
+      />
+    );
+  }
 
-  return (
-    <div className="space-y-4">
-      {lastScored && (
-        <ScoredRoundCallout round={lastScored} meId={me.id} />
-      )}
+  if (round.status === "waiting_for_pick") {
+    return isPicker ? (
+      <PickerPanel
+        matchId={match.id}
+        round={round}
+        opponent={opponent}
+        surahs={surahs}
+        busyRef={busyRef}
+        onMatchUpdate={onMatchUpdate}
+      />
+    ) : (
+      <WaitingPanel
+        title="Opponent is picking"
+        body={`${opponent.display_name} is choosing an ayah for you to continue.`}
+      />
+    );
+  }
 
-      {round.status === "waiting_for_pick" &&
-        (isPicker ? (
-          <PickerPanel
-            matchId={match.id}
-            round={round}
-            opponent={opponent}
-            surahs={surahs}
-            busyRef={busyRef}
-            onMatchUpdate={onMatchUpdate}
-          />
-        ) : (
-          <WaitingPanel
-            title="Opponent is picking"
-            body={`${opponent.display_name} is choosing an ayah for you to continue.`}
-          />
-        ))}
+  if (round.status === "picked") {
+    return isReciter ? (
+      <ReciterPanel
+        matchId={match.id}
+        round={round}
+        busyRef={busyRef}
+        wsRef={wsRef}
+        onMatchUpdate={onMatchUpdate}
+      />
+    ) : (
+      <ListenLivePanel
+        opponentName={opponent.display_name}
+        round={round}
+        wsRef={wsRef}
+      />
+    );
+  }
 
-      {round.status === "picked" &&
-        (isReciter ? (
-          <ReciterPanel
-            matchId={match.id}
-            round={round}
-            busyRef={busyRef}
-            onMatchUpdate={onMatchUpdate}
-          />
-        ) : (
-          <WaitingPanel
-            title="Opponent is reciting"
-            body={`Picked ayah ${round.surah}:${round.start_ayah}. ${opponent.display_name} has up to 15 seconds.`}
-          />
-        ))}
-    </div>
-  );
+  return null;
 }
 
 function PickerPanel({
@@ -313,6 +371,13 @@ function PickerPanel({
     }
   }
 
+  const juzList = opponent.memorized_juz.length
+    ? opponent.memorized_juz.join(", ")
+    : "—";
+  const surahList = opponent.memorized_surahs.length
+    ? opponent.memorized_surahs.join(", ")
+    : "—";
+
   return (
     <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
@@ -321,15 +386,14 @@ function PickerPanel({
         </h2>
         <p className="text-sm text-slate-700">
           Pick an ayah for{" "}
-          <span className="font-semibold">{opponent.display_name}</span> to
-          continue from. They&apos;ll recite the next ayah(s).
+          <span className="font-semibold">{opponent.display_name}</span>; they
+          will recite the next ayah in full.
         </p>
       </div>
       <p className="text-xs text-slate-600 mb-3">
-        Restricted to {opponent.display_name}&apos;s memorized juz&apos;:{" "}
-        <span className="font-mono text-slate-800">
-          {opponent.memorized_juz.join(", ")}
-        </span>
+        Restricted to {opponent.display_name}&apos;s memorized set —{" "}
+        <span className="font-mono text-slate-800">juz: {juzList}</span> ·{" "}
+        <span className="font-mono text-slate-800">surahs: {surahList}</span>
       </p>
 
       <QuranPageViewer
@@ -341,6 +405,7 @@ function PickerPanel({
           setAyah(next.ayah);
         }}
         allowedJuz={opponent.memorized_juz}
+        allowedSurahs={opponent.memorized_surahs}
       />
 
       <div className="mt-4 flex items-center justify-between gap-4">
@@ -378,11 +443,13 @@ function ReciterPanel({
   matchId,
   round,
   busyRef,
+  wsRef,
   onMatchUpdate,
 }: {
   matchId: number;
   round: RoundState;
   busyRef: React.MutableRefObject<boolean>;
+  wsRef: React.MutableRefObject<WsClient<MatchMessage> | null>;
   onMatchUpdate: (m: MatchState) => void;
 }) {
   const [submitting, setSubmitting] = useState(false);
@@ -408,21 +475,39 @@ function ReciterPanel({
       <h2 className="text-lg font-semibold text-slate-900 mb-1">
         Round {round.number}: your recitation
       </h2>
-      <p className="text-sm text-slate-700 mb-4">
+      <p className="text-sm text-slate-700 mb-2">
         Continue from{" "}
         <span className="font-semibold text-emerald-800">
           Surah {round.surah}, ayah {(round.start_ayah ?? 0) + 1}
         </span>{" "}
-        onward. You have up to 15 seconds.
+        — recite the next ayah in full (up to 15s).
       </p>
+
+      {round.start_ayah_text_uthmani && (
+        <div className="mb-4 bg-slate-50 border border-slate-200 rounded-lg p-4">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+            Picked ayah ({round.surah}:{round.start_ayah})
+          </p>
+          <p
+            dir="rtl"
+            className="quran-text text-2xl text-slate-900"
+          >
+            {round.start_ayah_text_uthmani}
+          </p>
+        </div>
+      )}
 
       <div className="max-w-sm">
         <Recorder
           maxSeconds={15}
           disabled={submitting}
           onComplete={handle}
+          liveAudioWs={wsRef.current}
         />
       </div>
+      <p className="text-xs text-slate-500 mt-2">
+        Your opponent will hear you live as you recite.
+      </p>
       {submitting && (
         <p className="text-sm text-slate-600 mt-3">Transcribing & scoring…</p>
       )}
@@ -435,7 +520,104 @@ function ReciterPanel({
   );
 }
 
-function WaitingPanel({ title, body }: { title: string; body: string }) {
+function ListenLivePanel({
+  opponentName,
+  round,
+  wsRef,
+}: {
+  opponentName: string;
+  round: RoundState;
+  wsRef: React.MutableRefObject<WsClient<MatchMessage> | null>;
+}) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const receiverRef = useRef<LiveAudioReceiver | null>(null);
+  const [streaming, setStreaming] = useState(false);
+  // Live audio defaults to MUTED to avoid a feedback loop when both
+  // browser sessions are on the same machine (picker's speakers → reciter's
+  // mic → garbled recording). Users with headphones can unmute manually.
+  const [muted, setMuted] = useState(true);
+
+  useEffect(() => {
+    const ws = wsRef.current;
+    if (!ws) return;
+    const recv = new LiveAudioReceiver();
+    receiverRef.current = recv;
+    recv.start(ws, (stream) => {
+      if (audioRef.current) {
+        audioRef.current.srcObject = stream;
+        audioRef.current.play().catch(() => {
+          /* autoplay may need a user gesture */
+        });
+        setStreaming(true);
+      }
+    });
+    return () => {
+      recv.stop();
+      receiverRef.current = null;
+      if (audioRef.current) {
+        audioRef.current.srcObject = null;
+      }
+      setStreaming(false);
+    };
+  }, [wsRef]);
+
+  return (
+    <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
+      <div className="flex items-center gap-3 mb-1">
+        <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+        <h2 className="text-lg font-semibold text-slate-900">
+          {opponentName} is reciting
+        </h2>
+      </div>
+      <p className="text-sm text-slate-700">
+        You picked {round.surah}:{round.start_ayah}. They have up to 15 seconds.
+      </p>
+
+      {round.start_ayah_text_uthmani && (
+        <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-4">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+            You picked
+          </p>
+          <p dir="rtl" className="quran-text text-2xl text-slate-900">
+            {round.start_ayah_text_uthmani}
+          </p>
+        </div>
+      )}
+
+      <div className="mt-3 flex items-center gap-3">
+        <audio
+          ref={audioRef}
+          autoPlay
+          controls
+          muted={muted}
+          className="flex-1"
+        />
+        <button
+          type="button"
+          onClick={() => setMuted((m) => !m)}
+          className="text-xs font-semibold px-2.5 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 whitespace-nowrap"
+        >
+          {muted ? "🔇 Tap to listen" : "🔊 Listening · mute"}
+        </button>
+      </div>
+      <p className="text-xs text-slate-500 mt-2">
+        {streaming ? "Live audio connected." : "Waiting for stream…"}{" "}
+        {muted &&
+          "Audio is muted by default. Use headphones if both windows are on the same machine."}
+      </p>
+    </section>
+  );
+}
+
+function WaitingPanel({
+  title,
+  body,
+  startAyahText,
+}: {
+  title: string;
+  body: string;
+  startAyahText?: string | null;
+}) {
   return (
     <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
       <div className="flex items-center gap-3 mb-1">
@@ -443,37 +625,158 @@ function WaitingPanel({ title, body }: { title: string; body: string }) {
         <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
       </div>
       <p className="text-sm text-slate-700">{body}</p>
+      {startAyahText && (
+        <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-4">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+            You picked
+          </p>
+          <p dir="rtl" className="quran-text text-2xl text-slate-900">
+            {startAyahText}
+          </p>
+        </div>
+      )}
     </section>
   );
 }
 
-function ScoredRoundCallout({
+function ReviewPanel({
+  match,
   round,
-  meId,
+  isPicker,
+  opponentName,
+  audioUrl,
+  busyRef,
+  onMatchUpdate,
 }: {
+  match: MatchState;
   round: RoundState;
-  meId: number;
+  isPicker: boolean;
+  opponentName: string;
+  audioUrl: string | null;
+  busyRef: React.MutableRefObject<boolean>;
+  onMatchUpdate: (m: MatchState) => void;
 }) {
-  const meWasReciter = round.reciter_id === meId;
-  const iWon = meWasReciter ? round.passed : !round.passed;
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const passed = round.passed === true;
   const accuracy = round.accuracy ?? 0;
+
+  async function finalize(override: boolean) {
+    setSubmitting(true);
+    setError(null);
+    busyRef.current = true;
+    try {
+      const m = await api.finalize(match.id, round.number, override);
+      onMatchUpdate(m);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "finalize failed");
+    } finally {
+      busyRef.current = false;
+      setSubmitting(false);
+    }
+  }
+
   return (
-    <section
-      className={`rounded-lg border px-4 py-3 ${
-        iWon
-          ? "bg-emerald-50 border-emerald-300"
-          : "bg-red-50 border-red-300"
-      }`}
-    >
-      <p className="text-sm font-semibold text-slate-900">
-        Round {round.number}: {iWon ? "You won" : "You lost"}
-        {round.passed !== null && (
-          <span className="text-slate-600 font-normal">
-            {" "}— accuracy {Math.round(accuracy * 100)}% (reciter{" "}
-            {round.passed ? "passed" : "missed"})
-          </span>
-        )}
-      </p>
+    <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="text-lg font-semibold text-slate-900">
+          Round {round.number} — review
+        </h2>
+        <span
+          className={`px-3 py-1 rounded-full text-sm font-bold border ${
+            passed
+              ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+              : "bg-red-100 text-red-900 border-red-300"
+          }`}
+        >
+          {passed ? "Passed" : "Failed"} · {Math.round(accuracy * 100)}%
+        </span>
+      </div>
+
+      {audioUrl && (
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+            The recording
+          </p>
+          <audio
+            key={audioUrl}
+            src={audioUrl}
+            controls
+            autoPlay
+            className="w-full"
+          />
+        </div>
+      )}
+
+      <div>
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+          Expected (ayah {round.target_ayat?.[0]?.surah}:
+          {round.target_ayat?.[0]?.number})
+        </p>
+        <p
+          dir="rtl"
+          className="quran-text text-2xl bg-slate-50 rounded-lg p-4 border border-slate-200"
+        >
+          {round.target_text}
+        </p>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+          Transcribed
+        </p>
+        <p
+          dir="rtl"
+          className="quran-text text-2xl bg-slate-50 rounded-lg p-4 border border-slate-200"
+        >
+          {round.transcript || (
+            <span dir="ltr" className="text-slate-400 font-sans text-base">
+              (no transcript)
+            </span>
+          )}
+        </p>
+      </div>
+
+      {isPicker ? (
+        <div className="flex flex-col sm:flex-row gap-2 pt-2">
+          {!passed && (
+            <button
+              type="button"
+              onClick={() => finalize(true)}
+              disabled={submitting}
+              className="flex-1 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 rounded-lg py-2.5 font-semibold disabled:opacity-50 transition-colors"
+              title="If you think the computer got it wrong"
+            >
+              Award point to opponent
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => finalize(false)}
+            disabled={submitting}
+            className="flex-1 bg-emerald-600 text-white rounded-lg py-2.5 font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+          >
+            {submitting
+              ? "Submitting…"
+              : passed
+                ? "Accept (next round)"
+                : "Confirm result (next round)"}
+          </button>
+        </div>
+      ) : (
+        <p className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+          Waiting for{" "}
+          <span className="font-semibold">{opponentName}</span> to confirm the
+          result…
+        </p>
+      )}
+
+      {error && (
+        <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+          {error}
+        </p>
+      )}
     </section>
   );
 }
@@ -481,9 +784,11 @@ function ScoredRoundCallout({
 function CompletedView({
   match,
   meId,
+  audioByRound,
 }: {
   match: MatchState;
   meId: number;
+  audioByRound: Record<number, string>;
 }) {
   const meIsA = match.player_a.id === meId;
   const myWins = meIsA ? match.a_wins : match.b_wins;
@@ -518,7 +823,7 @@ function CompletedView({
       {delta !== null && myAfter !== null && (
         <div className="bg-slate-50 rounded-lg border border-slate-200 px-4 py-3">
           <p className="text-sm text-slate-700">
-            Your {prettyTier(match.tier)} rating:{" "}
+            ELO:{" "}
             <span className="font-semibold text-slate-900">{myBefore}</span> →{" "}
             <span className="font-bold text-slate-900">{myAfter}</span>{" "}
             <span
@@ -536,8 +841,8 @@ function CompletedView({
           Round breakdown
         </h3>
         {match.rounds.map((r) => {
+          const iWon = r.winner_id === meId;
           const meWasReciter = r.reciter_id === meId;
-          const iWon = meWasReciter ? r.passed : !r.passed;
           return (
             <div
               key={r.number}
@@ -548,20 +853,25 @@ function CompletedView({
                   R{r.number} — you were{" "}
                   {meWasReciter ? "reciter" : "picker"}{" "}
                   ({r.surah}:{r.start_ayah})
+                  {r.overridden && (
+                    <span className="ml-2 text-amber-700 text-xs">
+                      (overridden)
+                    </span>
+                  )}
                 </span>
                 <span
                   className={`text-xs font-bold ${iWon ? "text-emerald-700" : "text-red-700"}`}
                 >
-                  {iWon ? "WON" : "LOST"} · {Math.round((r.accuracy ?? 0) * 100)}%
+                  {iWon ? "WON" : "LOST"} ·{" "}
+                  {Math.round((r.accuracy ?? 0) * 100)}%
                 </span>
               </div>
-              {meWasReciter && r.transcript && (
-                <p
-                  dir="rtl"
-                  className="font-arabic text-base text-slate-800 mt-1.5"
-                >
-                  {r.transcript}
-                </p>
+              {audioByRound[r.number] && (
+                <audio
+                  src={audioByRound[r.number]}
+                  controls
+                  className="w-full mt-2"
+                />
               )}
             </div>
           );

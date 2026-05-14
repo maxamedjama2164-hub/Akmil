@@ -5,18 +5,16 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { ApiError, api, getToken, setToken } from "@/lib/api";
-import { prettyTier } from "@/lib/types";
-import type { RatingRow, User } from "@/lib/types";
+import type { Invite, User } from "@/lib/types";
 import { WsClient, type LobbyMessage } from "@/lib/ws";
 
 type QueueState =
   | { kind: "idle" }
-  | { kind: "queueing"; tier: string; position: number; elapsedMs: number };
+  | { kind: "queueing"; position: number; elapsedMs: number };
 
 export default function LobbyPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
-  const [ratings, setRatings] = useState<RatingRow[] | null>(null);
   const [roundCount, setRoundCount] = useState(3);
   const [queue, setQueue] = useState<QueueState>({ kind: "idle" });
   const [error, setError] = useState<string | null>(null);
@@ -28,19 +26,15 @@ export default function LobbyPage() {
       router.replace("/login");
       return;
     }
-    Promise.all([api.me(), api.ratings()])
-      .then(([u, r]) => {
-        setUser(u);
-        setRatings(r);
-      })
+    api
+      .me()
+      .then(setUser)
       .catch(() => {
         setToken(null);
         router.replace("/login");
       });
   }, [router]);
 
-  // Open the lobby WebSocket. The server pushes `match_found` events when
-  // matchmaker pairs us with someone who was queued first.
   useEffect(() => {
     if (!user) return;
     const ws = new WsClient<LobbyMessage>("/ws/lobby");
@@ -59,9 +53,7 @@ export default function LobbyPage() {
     };
   }, [user, router]);
 
-  useEffect(() => {
-    return () => clearElapsed();
-  }, []);
+  useEffect(() => () => clearElapsed(), []);
 
   function clearElapsed() {
     if (elapsedTimerRef.current !== null) {
@@ -78,11 +70,9 @@ export default function LobbyPage() {
         router.push(`/match/${res.match_id}`);
         return;
       }
-      // Otherwise we're queued; WS will push when we're paired.
       const start = performance.now();
       setQueue({
         kind: "queueing",
-        tier: res.tier,
         position: res.queue_position ?? 1,
         elapsedMs: 0,
       });
@@ -114,7 +104,7 @@ export default function LobbyPage() {
     router.replace("/login");
   }
 
-  if (!user || !ratings) return <p className="p-6 text-slate-600">Loading…</p>;
+  if (!user) return <p className="p-6 text-slate-600">Loading…</p>;
 
   return (
     <main className="min-h-screen p-6 max-w-3xl mx-auto">
@@ -132,51 +122,48 @@ export default function LobbyPage() {
       </header>
 
       <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 mb-6">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <div>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="space-y-0.5">
             <h2 className="text-lg font-semibold text-slate-900">
-              Welcome, {user.display_name}!
+              Welcome, {user.display_name}
             </h2>
-            <p className="text-sm text-slate-700 mt-0.5">
-              Memorized: {user.memorized_juz.length} juz&apos;{" "}
-              <span className="text-slate-500">
-                ({user.memorized_juz.join(", ")})
-              </span>
+            <p className="text-sm text-slate-700">
+              <code className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-800 text-xs">
+                {user.email}
+              </code>
             </p>
           </div>
-          <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 font-semibold text-sm border border-emerald-300">
-            Tier: {prettyTier(user.tier)}
-          </span>
+          <div className="grid grid-cols-2 gap-3 text-center">
+            <div className="bg-emerald-50 border border-emerald-300 rounded-lg px-4 py-2">
+              <div className="text-xs uppercase tracking-wide text-emerald-700">
+                ELO
+              </div>
+              <div className="text-2xl font-bold text-emerald-900">
+                {user.rating}
+              </div>
+              <div className="text-xs text-emerald-700">
+                {user.games_played} game{user.games_played === 1 ? "" : "s"}
+              </div>
+            </div>
+            <div className="bg-slate-100 border border-slate-300 rounded-lg px-4 py-2">
+              <div className="text-xs uppercase tracking-wide text-slate-600">
+                Memorized
+              </div>
+              <div className="text-2xl font-bold text-slate-900">
+                {user.juz_equivalent.toFixed(1)}
+              </div>
+              <div className="text-xs text-slate-600">
+                of 30 juz&apos; ({user.memorized_ayat_count} ayat)
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 mb-6">
-        <h2 className="text-lg font-semibold text-slate-900 mb-3">
-          Your ratings
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {ratings.map((r) => (
-            <div
-              key={r.tier}
-              className={`rounded-lg border px-3 py-2 ${
-                r.tier === user.tier
-                  ? "border-emerald-400 bg-emerald-50"
-                  : "border-slate-200 bg-slate-50"
-              }`}
-            >
-              <div className="text-xs text-slate-600">{prettyTier(r.tier)}</div>
-              <div className="text-lg font-bold text-slate-900">{r.rating}</div>
-              <div className="text-xs text-slate-500">
-                {r.games_played} game{r.games_played === 1 ? "" : "s"}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+      <PrivateMatchSection roundCount={roundCount} />
 
       <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 mb-6">
         <h2 className="text-lg font-semibold text-slate-900 mb-3">Quickmatch</h2>
-
         {queue.kind === "idle" ? (
           <div className="space-y-4">
             <label className="flex items-center gap-3 text-sm">
@@ -200,7 +187,7 @@ export default function LobbyPage() {
               onClick={startQueue}
               className="bg-emerald-600 text-white rounded-lg px-5 py-2.5 font-semibold hover:bg-emerald-700 transition-colors"
             >
-              Find opponent ({prettyTier(user.tier)})
+              Find opponent
             </button>
             {error && (
               <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
@@ -213,9 +200,7 @@ export default function LobbyPage() {
             <div className="flex items-center gap-3">
               <span className="inline-block w-3 h-3 rounded-full bg-emerald-500 animate-pulse" />
               <p className="text-slate-800">
-                Searching for an opponent in{" "}
-                <span className="font-semibold">{prettyTier(queue.tier)}</span>
-                …{" "}
+                Searching for an opponent…{" "}
                 <span className="text-slate-500 text-sm">
                   ({(queue.elapsedMs / 1000).toFixed(0)}s)
                 </span>
@@ -236,7 +221,8 @@ export default function LobbyPage() {
           Solo practice
         </h2>
         <p className="text-slate-700 text-sm mb-3">
-          Take a spot test on your own — no opponent, no rating changes.
+          The system picks a random ayah from your memorized set — recite the
+          next one.
         </p>
         <Link
           href="/solo"
@@ -246,5 +232,101 @@ export default function LobbyPage() {
         </Link>
       </section>
     </main>
+  );
+}
+
+function PrivateMatchSection({ roundCount }: { roundCount: number }) {
+  const [invite, setInvite] = useState<Invite | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function create() {
+    setCreating(true);
+    setError(null);
+    try {
+      const inv = await api.createInvite({ round_count: roundCount });
+      setInvite(inv);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "could not create invite");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function cancel() {
+    if (!invite) return;
+    try {
+      await api.cancelInvite(invite.code);
+    } catch {
+      // ignore
+    }
+    setInvite(null);
+    setCopied(false);
+  }
+
+  function copyLink() {
+    if (!invite) return;
+    const fullUrl = `${window.location.origin}${invite.url}`;
+    navigator.clipboard.writeText(fullUrl);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 mb-6">
+      <h2 className="text-lg font-semibold text-slate-900 mb-3">
+        Challenge a friend
+      </h2>
+      {!invite ? (
+        <div className="space-y-3">
+          <p className="text-sm text-slate-700">
+            Create a private link and share it. The first person to accept
+            becomes your opponent.
+          </p>
+          <button
+            onClick={create}
+            disabled={creating}
+            className="bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg px-4 py-2 font-semibold disabled:opacity-50 transition-colors"
+          >
+            {creating
+              ? "Creating…"
+              : `Create private link (${roundCount} rounds)`}
+          </button>
+          {error && (
+            <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+              {error}
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <input
+              readOnly
+              value={`${typeof window !== "undefined" ? window.location.origin : ""}${invite.url}`}
+              onFocus={(e) => e.currentTarget.select()}
+              className="flex-1 border border-slate-300 rounded px-3 py-2 text-sm text-slate-900 bg-slate-50 font-mono"
+            />
+            <button
+              onClick={copyLink}
+              className="bg-emerald-600 text-white rounded px-3 py-2 text-sm font-semibold hover:bg-emerald-700"
+            >
+              {copied ? "Copied!" : "Copy"}
+            </button>
+          </div>
+          <p className="text-xs text-slate-600">
+            Waiting for your friend to accept — you&apos;ll be redirected
+            automatically.
+          </p>
+          <button
+            onClick={cancel}
+            className="text-sm text-slate-600 hover:text-slate-800 underline"
+          >
+            Cancel invite
+          </button>
+        </div>
+      )}
+    </section>
   );
 }

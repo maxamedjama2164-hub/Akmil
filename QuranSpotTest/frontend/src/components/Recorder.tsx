@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { LiveAudioBroadcaster } from "@/lib/live_audio";
+import type { WsClient } from "@/lib/ws";
+
 type Props = {
   /** Maximum recording length in seconds. */
   maxSeconds?: number;
@@ -9,6 +12,10 @@ type Props = {
   disabled?: boolean;
   /** Called when the user stops recording or the timer expires. */
   onComplete: (blob: Blob) => void;
+  /** If provided, the local mic stream is also published over WebRTC so
+   * the other player(s) on this match WS can hear the recitation live. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  liveAudioWs?: WsClient<any> | null;
 };
 
 type Status = "idle" | "requesting" | "recording" | "error";
@@ -32,7 +39,12 @@ function pickMimeType(): string {
   return "";
 }
 
-export function Recorder({ maxSeconds = 15, disabled, onComplete }: Props) {
+export function Recorder({
+  maxSeconds = 15,
+  disabled,
+  onComplete,
+  liveAudioWs,
+}: Props) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -42,6 +54,7 @@ export function Recorder({ maxSeconds = 15, disabled, onComplete }: Props) {
   const startTsRef = useRef<number>(0);
   const timerRef = useRef<number | null>(null);
   const stopReasonRef = useRef<"manual" | "timeout" | null>(null);
+  const broadcasterRef = useRef<LiveAudioBroadcaster | null>(null);
 
   const stop = useCallback((reason: "manual" | "timeout") => {
     const rec = recorderRef.current;
@@ -55,6 +68,8 @@ export function Recorder({ maxSeconds = 15, disabled, onComplete }: Props) {
       window.clearInterval(timerRef.current);
       timerRef.current = null;
     }
+    broadcasterRef.current?.stop();
+    broadcasterRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     recorderRef.current = null;
@@ -95,6 +110,15 @@ export function Recorder({ maxSeconds = 15, disabled, onComplete }: Props) {
       setStatus("recording");
       setElapsedMs(0);
 
+      // Kick off the live broadcast in parallel (fire-and-forget; failure
+      // here doesn't block the local recording / upload).
+      if (liveAudioWs) {
+        broadcasterRef.current = new LiveAudioBroadcaster();
+        broadcasterRef.current.start(stream, liveAudioWs).catch((e) => {
+          console.warn("live audio broadcast failed to start:", e);
+        });
+      }
+
       timerRef.current = window.setInterval(() => {
         const dt = performance.now() - startTsRef.current;
         setElapsedMs(dt);
@@ -107,7 +131,7 @@ export function Recorder({ maxSeconds = 15, disabled, onComplete }: Props) {
       );
       cleanup();
     }
-  }, [cleanup, maxSeconds, onComplete, stop]);
+  }, [cleanup, liveAudioWs, maxSeconds, onComplete, stop]);
 
   const seconds = Math.min(elapsedMs / 1000, maxSeconds);
   const remaining = Math.max(0, maxSeconds - seconds);

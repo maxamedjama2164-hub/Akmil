@@ -2,6 +2,7 @@ from app.services.elo import (
     DEFAULT_RATING,
     K_ESTABLISHED,
     K_PROVISIONAL,
+    K_TIERS,
     expected,
     k_factor,
     update_pair,
@@ -19,11 +20,28 @@ def test_expected_higher_rated_is_favored():
     assert expected(1400, 1200) + expected(1200, 1400) == 1.0
 
 
-def test_k_factor_threshold():
-    assert k_factor(0) == K_PROVISIONAL
-    assert k_factor(29) == K_PROVISIONAL
+def test_k_factor_decreases_with_experience():
+    # Monotonically non-increasing across the lifecycle.
+    games = [0, 4, 5, 14, 15, 29, 30, 1000]
+    ks = [k_factor(g) for g in games]
+    assert ks == sorted(ks, reverse=True)
+
+
+def test_k_factor_tier_boundaries():
+    # 4 games left in the most-volatile tier; 5 games crosses into next.
+    assert k_factor(0) == K_TIERS[0][1]
+    assert k_factor(4) == K_TIERS[0][1]
+    assert k_factor(5) == K_TIERS[1][1]
+    assert k_factor(15) == K_TIERS[2][1]
     assert k_factor(30) == K_ESTABLISHED
     assert k_factor(1000) == K_ESTABLISHED
+
+
+def test_first_game_is_more_volatile_than_30th():
+    # Same matchup, different experience levels.
+    early_a, _ = update_pair(1200, 1200, score_a=1.0, games_a=0, games_b=0)
+    late_a, _ = update_pair(1200, 1200, score_a=1.0, games_a=100, games_b=100)
+    assert (early_a - 1200) > (late_a - 1200) * 2
 
 
 def test_winner_gains_loser_loses():

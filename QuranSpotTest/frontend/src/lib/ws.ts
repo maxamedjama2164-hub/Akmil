@@ -74,6 +74,13 @@ export class WsClient<TIn = unknown> {
     };
   }
 
+  /** Send a JSON-encoded payload. No-op if the socket isn't open. */
+  sendJson(payload: unknown): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(payload));
+    }
+  }
+
   close(): void {
     this.closed = true;
     if (this.timer !== null) {

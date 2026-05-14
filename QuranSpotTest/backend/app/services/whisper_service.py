@@ -18,12 +18,29 @@ from transformers import (
 
 from app.config import settings
 
-# Tarteel's checkpoint ships an old-style generation_config that's missing
-# the `lang_to_id` table newer transformers requires. We borrow the canonical
-# config from openai/whisper-base — same tokenizer/vocab family, but it has
-# the language-id lookup. Only the generation defaults change; weights are
-# Tarteel's untouched.
-_GENERATION_CONFIG_SOURCE = "openai/whisper-base"
+# Several Tarteel and community Whisper fine-tunes ship an old-style
+# generation_config missing the `lang_to_id` table that newer transformers
+# requires. We borrow the canonical config from the matching OpenAI Whisper
+# variant (same tokenizer/vocab family) — only the generation defaults
+# change; the fine-tuned weights are untouched.
+_OPENAI_VARIANTS: tuple[str, ...] = (
+    "large-v3-turbo",
+    "large-v3",
+    "large-v2",
+    "large",
+    "medium",
+    "small",
+    "base",
+    "tiny",
+)
+
+
+def _generation_config_source(model_id: str) -> str:
+    mid = model_id.lower()
+    for variant in _OPENAI_VARIANTS:
+        if variant in mid:
+            return f"openai/whisper-{variant}"
+    return "openai/whisper-base"
 
 
 class WhisperService:
@@ -37,7 +54,7 @@ class WhisperService:
         self.model.eval()
 
         self.model.generation_config = GenerationConfig.from_pretrained(
-            _GENERATION_CONFIG_SOURCE
+            _generation_config_source(settings.whisper_model_id)
         )
         self.model.generation_config.language = "ar"
         self.model.generation_config.task = "transcribe"

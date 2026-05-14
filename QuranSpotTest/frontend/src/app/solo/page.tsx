@@ -2,21 +2,35 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { QuranPageViewer } from "@/components/QuranPageViewer";
 import { Recorder } from "@/components/Recorder";
 import { ApiError, api, getToken } from "@/lib/api";
-import type { ScoreResult, SurahMeta } from "@/lib/types";
+import type { ScoreResult, SoloPick, User } from "@/lib/types";
+
+type Phase =
+  | { kind: "loading" }
+  | { kind: "ready"; pick: SoloPick }
+  | { kind: "scoring"; pick: SoloPick }
+  | { kind: "result"; pick: SoloPick; result: ScoreResult };
 
 export default function SoloPage() {
   const router = useRouter();
-  const [surahs, setSurahs] = useState<SurahMeta[] | null>(null);
-  const [surah, setSurah] = useState<number | null>(null);
-  const [ayah, setAyah] = useState<number | null>(null);
-  const [scoring, setScoring] = useState(false);
-  const [result, setResult] = useState<ScoreResult | null>(null);
+  const [me, setMe] = useState<User | null>(null);
+  const [phase, setPhase] = useState<Phase>({ kind: "loading" });
   const [error, setError] = useState<string | null>(null);
+
+  const pickNext = useCallback(async () => {
+    setError(null);
+    setPhase({ kind: "loading" });
+    try {
+      const pick = await api.soloPick();
+      setPhase({ kind: "ready", pick });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "could not pick an ayah");
+      setPhase({ kind: "loading" });
+    }
+  }, []);
 
   useEffect(() => {
     if (!getToken()) {
@@ -24,42 +38,35 @@ export default function SoloPage() {
       return;
     }
     api
-      .surahs()
-      .then(setSurahs)
-      .catch((e) =>
-        setError(e instanceof ApiError ? e.message : "failed to load surahs"),
-      );
-  }, [router]);
+      .me()
+      .then((u) => {
+        setMe(u);
+        pickNext();
+      })
+      .catch(() => router.replace("/login"));
+  }, [router, pickNext]);
 
   async function handleRecording(blob: Blob) {
-    if (surah === null || ayah === null) return;
-    setScoring(true);
+    if (phase.kind !== "ready") return;
+    setPhase({ kind: "scoring", pick: phase.pick });
     setError(null);
-    setResult(null);
     try {
-      const r = await api.score({ surah, startAyah: ayah, audio: blob });
-      setResult(r);
+      const r = await api.score({
+        surah: phase.pick.surah,
+        startAyah: phase.pick.start_ayah,
+        audio: blob,
+      });
+      setPhase({ kind: "result", pick: phase.pick, result: r });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "scoring failed");
-    } finally {
-      setScoring(false);
+      setPhase({ kind: "ready", pick: phase.pick });
     }
   }
 
-  function reset() {
-    setResult(null);
-    setError(null);
-  }
-
-  if (!surahs) {
-    return <p className="p-6 text-slate-600">Loading surahs…</p>;
-  }
-
-  const currentSurah = surah !== null ? surahs.find((s) => s.id === surah) : null;
-  const ready = surah !== null && ayah !== null && !scoring && !result;
+  if (!me) return <p className="p-6 text-slate-600">Loading…</p>;
 
   return (
-    <main className="min-h-screen p-4 md:p-6 max-w-6xl mx-auto">
+    <main className="min-h-screen p-4 md:p-6 max-w-3xl mx-auto">
       <header className="flex justify-between items-center mb-6">
         <Link
           href="/lobby"
@@ -70,71 +77,84 @@ export default function SoloPage() {
         <h1 className="text-2xl font-bold text-slate-900">Solo practice</h1>
       </header>
 
-      {!result && (
-        <>
-          <QuranPageViewer
-            surahs={surahs}
-            surah={surah}
-            ayah={ayah}
-            onChange={({ surah: s, ayah: a }) => {
-              setSurah(s);
-              setAyah(a);
-              setError(null);
-            }}
-          />
-
-          <section className="mt-6 bg-white rounded-lg shadow-sm border border-slate-200 p-5">
-            <div className="flex flex-col md:flex-row gap-4 md:items-center md:justify-between">
-              <div className="flex-1">
-                <h2 className="font-semibold text-slate-900">
-                  Recite the next ayat
-                </h2>
-                {surah !== null && ayah !== null && currentSurah ? (
-                  <p className="text-sm text-slate-700 mt-1">
-                    Picked{" "}
-                    <span className="font-medium text-emerald-800">
-                      {currentSurah.name_en} {surah}:{ayah}
-                    </span>
-                    . Continue from ayah {ayah + 1} (up to ~15s).
-                  </p>
-                ) : (
-                  <p className="text-sm text-slate-600 mt-1">
-                    Pick a starting ayah from the page viewer above.
-                  </p>
-                )}
-              </div>
-              <div className="w-full md:w-64">
-                <Recorder
-                  maxSeconds={15}
-                  disabled={!ready}
-                  onComplete={handleRecording}
-                />
-              </div>
-            </div>
-            {scoring && (
-              <p className="text-sm text-slate-600 mt-3">Transcribing…</p>
-            )}
-            {error && (
-              <p className="text-sm text-red-700 mt-3 font-medium">{error}</p>
-            )}
-          </section>
-        </>
+      {phase.kind === "loading" && (
+        <p className="text-slate-600">Picking a random ayah from your memorized set…</p>
       )}
 
-      {result && <ResultCard result={result} onReset={reset} />}
+      {(phase.kind === "ready" || phase.kind === "scoring") && (
+        <PrompPanel
+          pick={phase.pick}
+          scoring={phase.kind === "scoring"}
+          onComplete={handleRecording}
+        />
+      )}
+
+      {phase.kind === "result" && (
+        <ResultCard
+          pick={phase.pick}
+          result={phase.result}
+          onNext={pickNext}
+        />
+      )}
+
+      {error && (
+        <p className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+          {error}
+        </p>
+      )}
     </main>
   );
 }
 
-function ResultCard({
-  result,
-  onReset,
+function PrompPanel({
+  pick,
+  scoring,
+  onComplete,
 }: {
+  pick: SoloPick;
+  scoring: boolean;
+  onComplete: (blob: Blob) => void;
+}) {
+  return (
+    <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 space-y-4">
+      <div>
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
+          {pick.surah_name_en} ({pick.surah}:{pick.start_ayah})
+        </p>
+        <p
+          dir="rtl"
+          className="quran-text text-2xl bg-slate-50 rounded-lg p-4 border border-slate-200"
+        >
+          {pick.start_ayah_text_uthmani}
+        </p>
+        <p className="text-sm text-slate-700 mt-3">
+          Recite{" "}
+          <span className="font-semibold text-emerald-800">
+            the next ayah ({pick.surah}:{pick.start_ayah + 1})
+          </span>{" "}
+          in full — up to 15 seconds.
+        </p>
+      </div>
+      <div className="max-w-sm">
+        <Recorder maxSeconds={15} disabled={scoring} onComplete={onComplete} />
+      </div>
+      {scoring && (
+        <p className="text-sm text-slate-600">Transcribing & scoring…</p>
+      )}
+    </section>
+  );
+}
+
+function ResultCard({
+  pick,
+  result,
+  onNext,
+}: {
+  pick: SoloPick;
   result: ScoreResult;
-  onReset: () => void;
+  onNext: () => void;
 }) {
   const pct = Math.round(result.accuracy * 100);
-
   let statusLabel: string;
   let statusClasses: string;
   if (result.reason === "no_speech") {
@@ -144,7 +164,7 @@ function ResultCard({
     statusLabel = "Passed";
     statusClasses = "bg-emerald-100 text-emerald-900 border-emerald-300";
   } else {
-    statusLabel = "Failed";
+    statusLabel = "Mistake detected";
     statusClasses = "bg-red-100 text-red-900 border-red-300";
   }
 
@@ -159,26 +179,30 @@ function ResultCard({
         </span>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-        <Stat label="Word accuracy" value={`${Math.round(result.word_accuracy * 100)}%`} />
-        <Stat label="Char accuracy" value={`${Math.round(result.char_accuracy * 100)}%`} />
-        <Stat label="Audio duration" value={`${result.duration_s}s`} />
-        <Stat label="Inference" value={`${result.inference_s}s`} />
+      <div>
+        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+          You were asked to continue from
+        </p>
+        <p
+          dir="rtl"
+          className="quran-text text-2xl bg-slate-50 rounded-lg p-4 border border-slate-200"
+        >
+          {pick.start_ayah_text_uthmani}
+        </p>
+        <p className="text-xs text-slate-500 mt-1">
+          {pick.surah_name_en} ({pick.surah}:{pick.start_ayah})
+        </p>
       </div>
 
       <div>
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-          Expected
+          Expected next ayah
         </p>
         <p
           dir="rtl"
           className="quran-text text-2xl bg-slate-50 rounded-lg p-4 border border-slate-200"
         >
           {result.target_text_uthmani}
-        </p>
-        <p className="text-xs text-slate-500 mt-1.5">
-          Ayat:{" "}
-          {result.ayat_used.map((a) => `${a.surah}:${a.number}`).join(", ")}
         </p>
       </div>
 
@@ -191,7 +215,7 @@ function ResultCard({
           className="quran-text text-2xl bg-slate-50 rounded-lg p-4 border border-slate-200"
         >
           {result.transcript || (
-            <span className="text-slate-400" dir="ltr">
+            <span dir="ltr" className="text-slate-400 font-sans text-base">
               (no transcript)
             </span>
           )}
@@ -200,20 +224,11 @@ function ResultCard({
 
       <button
         type="button"
-        onClick={onReset}
+        onClick={onNext}
         className="w-full bg-emerald-600 text-white rounded-lg py-2.5 font-semibold hover:bg-emerald-700 transition-colors"
       >
-        Try another
+        Try another ayah
       </button>
     </section>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-slate-50 rounded border border-slate-200 px-3 py-2">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="text-base font-semibold text-slate-900">{value}</div>
-    </div>
   );
 }
