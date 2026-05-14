@@ -10,9 +10,11 @@ type Props = {
   surah: number | null;
   ayah: number | null;
   onChange: (next: { surah: number | null; ayah: number | null }) => void;
-  /** If set, only ayat within these juz' are selectable. Surahs whose juz'
-   * range doesn't intersect this set are hidden from the surah list. */
+  /** If either filter is set, the picker view restricts selection to the
+   * union of allowedJuz' juz-coverage and allowedSurahs' surah-membership.
+   * Surahs that don't intersect either are hidden from the surah list. */
   allowedJuz?: number[];
+  allowedSurahs?: number[];
 };
 
 function toArabicNumerals(n: number): string {
@@ -27,6 +29,7 @@ export function QuranPageViewer({
   ayah,
   onChange,
   allowedJuz,
+  allowedSurahs,
 }: Props) {
   const [search, setSearch] = useState("");
   const [ayat, setAyat] = useState<AyahMeta[]>([]);
@@ -35,18 +38,27 @@ export function QuranPageViewer({
   const selectedRef = useRef<HTMLSpanElement | null>(null);
   const surahButtonRef = useRef<HTMLButtonElement | null>(null);
 
-  const allowed = useMemo(
+  const juzSet = useMemo(
     () => (allowedJuz && allowedJuz.length ? new Set(allowedJuz) : null),
     [allowedJuz],
   );
+  const surahSet = useMemo(
+    () =>
+      allowedSurahs && allowedSurahs.length ? new Set(allowedSurahs) : null,
+    [allowedSurahs],
+  );
+  const hasFilter = juzSet !== null || surahSet !== null;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     let result = surahs;
-    if (allowed) {
+    if (hasFilter) {
       result = result.filter((s) => {
-        for (let j = s.juz_min; j <= s.juz_max; j++) {
-          if (allowed.has(j)) return true;
+        if (surahSet?.has(s.id)) return true;
+        if (juzSet) {
+          for (let j = s.juz_min; j <= s.juz_max; j++) {
+            if (juzSet.has(j)) return true;
+          }
         }
         return false;
       });
@@ -58,7 +70,7 @@ export function QuranPageViewer({
         s.name_ar.includes(search) ||
         String(s.id) === q,
     );
-  }, [surahs, search, allowed]);
+  }, [surahs, search, juzSet, surahSet, hasFilter]);
 
   const currentSurah = useMemo(
     () => (surah !== null ? surahs.find((s) => s.id === surah) : null),
@@ -199,7 +211,10 @@ export function QuranPageViewer({
                 !error &&
                 ayat.map((a) => {
                   const active = a.number === ayah;
-                  const allowedHere = !allowed || allowed.has(a.juz);
+                  const allowedHere =
+                    !hasFilter ||
+                    (surahSet?.has(surah ?? -1) ?? false) ||
+                    (juzSet?.has(a.juz) ?? false);
                   const handlePick = () => {
                     if (allowedHere) onChange({ surah, ayah: a.number });
                   };
@@ -241,7 +256,7 @@ export function QuranPageViewer({
                         title={
                           allowedHere
                             ? `Ayah ${a.number}`
-                            : `Ayah ${a.number} (juz ${a.juz} not in opponent's memorized set)`
+                            : `Ayah ${a.number} is outside the reciter's memorized set`
                         }
                       >
                         ﴿{toArabicNumerals(a.number)}﴾

@@ -23,15 +23,17 @@ class User(Base):
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     display_name: Mapped[str] = mapped_column(String, nullable=False)
-    # Comma-separated juz numbers, e.g. "1,2,3,30". Empty string = none yet.
     memorized_juz_csv: Mapped[str] = mapped_column(
         String, nullable=False, default=""
     )
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-
-    ratings: Mapped[list["Rating"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
+    memorized_surahs_csv: Mapped[str] = mapped_column(
+        String, nullable=False, default=""
     )
+    # Unified ELO — one rating across the whole app. ajza-count is tracked
+    # separately as a soft matchmaking factor.
+    rating: Mapped[int] = mapped_column(Integer, nullable=False, default=1200)
+    games_played: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
     @property
     def memorized_juz(self) -> set[int]:
@@ -41,19 +43,13 @@ class User(Base):
     def memorized_juz(self, value: set[int]) -> None:
         self.memorized_juz_csv = serialize_memorized(set(value))
 
+    @property
+    def memorized_surahs(self) -> set[int]:
+        return parse_memorized_csv(self.memorized_surahs_csv)
 
-class Rating(Base):
-    __tablename__ = "ratings"
-
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
-    tier: Mapped[str] = mapped_column(String, primary_key=True)
-    rating: Mapped[int] = mapped_column(Integer, nullable=False, default=1200)
-    games_played: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
-    )
-
-    user: Mapped[User] = relationship(back_populates="ratings")
+    @memorized_surahs.setter
+    def memorized_surahs(self, value: set[int]) -> None:
+        self.memorized_surahs_csv = serialize_memorized(set(value))
 
 
 class Match(Base):
@@ -62,7 +58,6 @@ class Match(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     player_a_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     player_b_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    tier: Mapped[str] = mapped_column(String, nullable=False)
     round_count: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     # "in_progress" | "completed" | "abandoned"
     status: Mapped[str] = mapped_column(String, nullable=False, default="in_progress")
@@ -106,9 +101,16 @@ class Round(Base):
     accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
     passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Finalization gate. After scoring, the picker reviews the result and
+    # either accepts it or overrides (award the point to the reciter even
+    # though the computer marked them as failed). Until finalized=True, the
+    # round doesn't count toward match outcome and ELO isn't computed.
+    finalized: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    overridden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     picked_at: Mapped[datetime | None] = mapped_column(nullable=True)
     scored_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    finalized_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
     match: Mapped[Match] = relationship(back_populates="rounds")
 
@@ -116,8 +118,18 @@ class Round(Base):
 
     @property
     def status(self) -> str:
+        if self.finalized:
+            return "finalized"
         if self.transcript is not None:
             return "scored"
         if self.surah is not None:
             return "picked"
         return "waiting_for_pick"
+
+    @property
+    def winner_id(self) -> int | None:
+        """The user_id of whoever this round counts for (after override)."""
+        if self.passed is None:
+            return None
+        reciter_won = self.passed or self.overridden
+        return self.reciter_id if reciter_won else self.picker_id

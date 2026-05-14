@@ -1,9 +1,11 @@
 import type {
   AuthResponse,
+  CoverageResponse,
+  Invite,
   MatchState,
   QuickmatchResponse,
-  RatingRow,
   ScoreResult,
+  SoloPick,
   SurahDetail,
   SurahMeta,
   User,
@@ -81,6 +83,7 @@ export const api = {
     password: string;
     display_name: string;
     memorized_juz: number[];
+    memorized_surahs: number[];
   }) =>
     request<AuthResponse>("/api/auth/signup", {
       method: "POST",
@@ -92,6 +95,12 @@ export const api = {
       body: JSON.stringify(body),
     }),
   me: () => request<User>("/api/auth/me"),
+
+  coverage: (body: { memorized_juz: number[]; memorized_surahs: number[] }) =>
+    request<CoverageResponse>("/api/coverage", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   surahs: () => request<SurahMeta[]>("/api/quran/surahs"),
   surah: (n: number, opts?: { juzMin?: number; juzMax?: number }) => {
@@ -110,7 +119,7 @@ export const api = {
     return postMultipart<ScoreResult>("/api/score", fd);
   },
 
-  ratings: () => request<RatingRow[]>("/api/ratings/me"),
+  soloPick: () => request<SoloPick>("/api/solo/pick"),
 
   quickmatch: (body: { round_count: number }) =>
     request<QuickmatchResponse>("/api/matches/quickmatch", {
@@ -132,4 +141,25 @@ export const api = {
     fd.append("file", audio, "recording.webm");
     return postMultipart<MatchState>(`/api/matches/${id}/recording`, fd);
   },
+  finalize: (matchId: number, roundNumber: number, override: boolean) =>
+    request<MatchState>(
+      `/api/matches/${matchId}/rounds/${roundNumber}/finalize`,
+      { method: "POST", body: JSON.stringify({ override }) },
+    ),
+  createInvite: (body: { round_count: number }) =>
+    request<Invite>("/api/matches/private", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  getInvite: (code: string) =>
+    request<Invite>(`/api/matches/private/${code}`),
+  acceptInvite: (code: string) =>
+    request<{ match_id: number }>(`/api/matches/private/${code}/accept`, {
+      method: "POST",
+    }),
+  cancelInvite: (code: string) =>
+    request<{ cancelled: boolean }>(
+      `/api/matches/private/${code}/cancel`,
+      { method: "POST" },
+    ),
 };

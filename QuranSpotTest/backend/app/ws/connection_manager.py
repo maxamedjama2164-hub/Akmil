@@ -46,6 +46,45 @@ class ConnectionManager:
             conns = list(self.match_conns.get(match_id, ()))
         await self._send_many(conns, payload)
 
+    async def broadcast_match_except(
+        self,
+        match_id: int,
+        payload: dict[str, Any],
+        *,
+        exclude: WebSocket | None,
+    ) -> None:
+        """Same as broadcast_match but skips one socket (the sender). Used
+        for relaying client-originated JSON messages like WebRTC signaling."""
+        async with self._lock:
+            conns = [
+                ws
+                for ws in self.match_conns.get(match_id, ())
+                if ws is not exclude
+            ]
+        await self._send_many(conns, payload)
+
+    async def relay_match_bytes(
+        self,
+        match_id: int,
+        data: bytes,
+        exclude: WebSocket | None = None,
+    ) -> None:
+        """Relay a raw binary frame (e.g. an audio chunk) to all sockets in
+        a match except the sender."""
+        async with self._lock:
+            conns = [
+                ws
+                for ws in self.match_conns.get(match_id, ())
+                if ws is not exclude
+            ]
+        for ws in conns:
+            if ws.client_state != WebSocketState.CONNECTED:
+                continue
+            try:
+                await ws.send_bytes(data)
+            except Exception as e:
+                log.debug("ws binary send failed: %s", e)
+
     # ─── Lobby channel ────────────────────────────────────────────────
     async def connect_lobby(self, user_id: int, ws: WebSocket) -> None:
         async with self._lock:

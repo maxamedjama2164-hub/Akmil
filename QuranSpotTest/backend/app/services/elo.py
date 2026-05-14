@@ -1,11 +1,30 @@
-"""ELO rating updates. One module per concept, one tier per user, lazy-init at 1200."""
+"""ELO rating updates. One module per concept, one tier per user, lazy-init at 1200.
+
+K-factor is **tiered** so a new player's rating finds its real level quickly,
+then settles down. Standard chess uses a "provisional" K-bump until games_played
+crosses a threshold; we smooth it out with four tiers.
+"""
 
 from __future__ import annotations
 
 DEFAULT_RATING = 1200
-PROVISIONAL_GAMES = 30
-K_PROVISIONAL = 32
-K_ESTABLISHED = 16
+
+# K-factor schedule: very volatile early, calmer once established.
+#   games_played | K   | per-game swing at 50/50 expectations
+#       0-4      | 40  | ±20
+#       5-14     | 30  | ±15
+#      15-29     | 20  | ±10
+#      30+       | 12  | ±6
+K_TIERS: list[tuple[int, int]] = [
+    (5, 40),
+    (15, 30),
+    (30, 20),
+]
+K_ESTABLISHED = 12
+
+# Kept for any external import. New code should use `k_factor(games)`.
+K_PROVISIONAL = K_TIERS[0][1]
+PROVISIONAL_GAMES = K_TIERS[-1][0]
 
 
 def expected(rating_a: int, rating_b: int) -> float:
@@ -13,7 +32,10 @@ def expected(rating_a: int, rating_b: int) -> float:
 
 
 def k_factor(games_played: int) -> int:
-    return K_PROVISIONAL if games_played < PROVISIONAL_GAMES else K_ESTABLISHED
+    for threshold, k in K_TIERS:
+        if games_played < threshold:
+            return k
+    return K_ESTABLISHED
 
 
 def update_pair(

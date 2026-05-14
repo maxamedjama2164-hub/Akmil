@@ -1,6 +1,5 @@
 "use client";
 
-import { prettyTier, tierForCount } from "@/lib/types";
 
 type Props = {
   /** Currently-selected juz numbers (1..30). */
@@ -20,7 +19,6 @@ export function JuzPicker({ value, onChange }: Props) {
 
   const all = (juz: number[]) => onChange([...juz].sort((a, b) => a - b));
 
-  const tier = tierForCount(value.length);
 
   return (
     <div className="space-y-3">
@@ -63,17 +61,9 @@ export function JuzPicker({ value, onChange }: Props) {
         />
       </div>
 
-      <div className="flex items-center justify-between text-sm bg-slate-50 border border-slate-200 rounded px-3 py-2">
-        <span className="text-slate-700">
-          <span className="font-semibold text-slate-900">{value.length}</span>{" "}
-          juz selected
-        </span>
-        <span className="text-slate-700">
-          Queue tier:{" "}
-          <span className="font-semibold text-emerald-800">
-            {prettyTier(tier)}
-          </span>
-        </span>
+      <div className="text-sm bg-slate-50 border border-slate-200 rounded px-3 py-2 text-slate-700">
+        <span className="font-semibold text-slate-900">{value.length}</span>{" "}
+        of 30 juz&apos; selected
       </div>
     </div>
   );

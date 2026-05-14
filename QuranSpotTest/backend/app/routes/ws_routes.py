@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -78,7 +79,9 @@ async def ws_match(
         if match is None or user_id not in (match.player_a_id, match.player_b_id):
             await websocket.close(code=1008)
             return
-        initial_payload = _match_out(db, match).model_dump(mode="json")
+        initial_payload = _match_out(
+            db, match, quran=websocket.app.state.quran
+        ).model_dump(mode="json")
     finally:
         db.close()
 
@@ -88,10 +91,41 @@ async def ws_match(
 
     try:
         await websocket.send_json({"type": "state", "match": initial_payload})
+        # Mixed text/binary loop:
+        #   - Binary frames: legacy audio chunk path (currently unused by the
+        #     frontend; kept available for future raw-PCM streaming).
+        #   - Text frames typed `webrtc_*`: live-audio WebRTC signaling
+        #     (offer/answer/ICE) — we relay them verbatim to the other
+        #     match participants. All other text frames are dropped.
         while True:
-            # Drain client messages (we use REST for actions). Mainly keeps
-            # the connection considered "active".
-            await websocket.receive_text()
+            message = await websocket.receive()
+            msg_type = message.get("type")
+            if msg_type == "websocket.disconnect":
+                break
+            if msg_type != "websocket.receive":
+                continue
+            data = message.get("bytes")
+            if data is not None:
+                await manager.relay_match_bytes(match_id, data, exclude=websocket)
+                continue
+            text = message.get("text")
+            if text is None:
+                continue
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                continue
+            if (
+                isinstance(payload, dict)
+                and isinstance(payload.get("type"), str)
+                and payload["type"].startswith("webrtc_")
+            ):
+                # Tag the relayed message with the sender's user_id so the
+                # receiver can distinguish their own echoes if needed.
+                payload["from_user_id"] = user_id
+                await manager.broadcast_match_except(
+                    match_id, payload, exclude=websocket
+                )
     except WebSocketDisconnect:
         pass
     except asyncio.CancelledError:
