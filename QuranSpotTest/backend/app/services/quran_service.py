@@ -128,6 +128,42 @@ class QuranService:
             return False
         return ayah.juz in memorized_juz
 
+    def compute_juz_equivalent(
+        self,
+        memorized_juz: set[int],
+        memorized_surahs: set[int],
+    ) -> float:
+        """Accurately compute juz-equivalents.
+
+        Rule: each selected whole juz counts as EXACTLY 1.0 juz.
+        Individual surahs add only the ayat that fall outside those juz.
+        This fixes the bug where juz 30 (564 ayat) showed as ~2.7 juz
+        because the uniform average (207 ayat/juz) was used for everything.
+        """
+        whole = float(len(memorized_juz))
+        if not memorized_surahs:
+            return whole
+
+        with self._conn() as conn:
+            if memorized_juz:
+                juz_ph   = ",".join("?" * len(memorized_juz))
+                surah_ph = ",".join("?" * len(memorized_surahs))
+                row = conn.execute(
+                    f"SELECT COUNT(*) FROM ayah "
+                    f"WHERE surah IN ({surah_ph}) AND juz NOT IN ({juz_ph})",
+                    [*sorted(memorized_surahs), *sorted(memorized_juz)],
+                ).fetchone()
+            else:
+                surah_ph = ",".join("?" * len(memorized_surahs))
+                row = conn.execute(
+                    f"SELECT COUNT(*) FROM ayah WHERE surah IN ({surah_ph})",
+                    sorted(memorized_surahs),
+                ).fetchone()
+
+        from app.services.tiers import AYAT_PER_JUZ
+        extra_ayat = int(row[0])
+        return whole + extra_ayat / AYAT_PER_JUZ
+
     def build_target(
         self,
         surah: int,

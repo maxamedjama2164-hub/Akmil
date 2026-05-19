@@ -151,8 +151,14 @@ def submit_score(
     match: Match,
     user_id: int,
     transcript: str,
+    search_override: tuple[float, bool] | None = None,
 ) -> Round:
-    """Score the current round given an ASR transcript (no finalization yet)."""
+    """Score the current round given an ASR transcript (no finalization yet).
+
+    search_override: (accuracy, passed) from search-based validation. When
+    provided and the base Levenshtein score failed, the override values are
+    used so that ASR spelling variants don't unfairly penalise the reciter.
+    """
     if match.status != "in_progress":
         raise MatchEngineError("match is not in progress")
     cur = current_round(match)
@@ -169,11 +175,16 @@ def submit_score(
     asr_words = normalize(transcript)
     score = score_round(target_words, asr_words)
 
+    final_accuracy = score.accuracy
+    final_passed   = score.passed
+    if search_override is not None and not score.passed:
+        final_accuracy, final_passed = search_override
+
     cur.transcript = transcript
-    cur.accuracy = score.accuracy
-    cur.passed = score.passed
-    cur.reason = score.reason
-    cur.scored_at = _now()
+    cur.accuracy   = final_accuracy
+    cur.passed     = final_passed
+    cur.reason     = score.reason
+    cur.scored_at  = _now()
     db.flush()
     return cur
 

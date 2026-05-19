@@ -35,17 +35,18 @@ from app.schemas import (
 )
 from app.services import match_engine
 from app.services.audio_pipeline import AudioDecodeError, decode_to_pcm
-from app.services.tiers import juz_equivalents_for_ayat
+from app.services.normalizer import normalize
+from app.services.quran_api_client import search_boost, search_verse
+from app.services.scorer import score_round
 
 router = APIRouter(prefix="/api/matches", tags=["matches"])
 
-MAX_AUDIO_BYTES = 5 * 1024 * 1024
+MAX_AUDIO_BYTES = 25 * 1024 * 1024  # 25 MB — headroom for 10-min recordings
 MIN_AUDIO_SAMPLES = int(16000 * 0.3)
 
 
 def _juz_equiv_for(user: User, quran) -> float:
-    ayat = quran.count_memorized_ayat(user.memorized_juz, user.memorized_surahs)
-    return juz_equivalents_for_ayat(ayat)
+    return quran.compute_juz_equivalent(user.memorized_juz, user.memorized_surahs)
 
 
 def _player_out(user: User, quran) -> MatchPlayerOut:
@@ -272,9 +273,25 @@ async def submit_recording(
         audio,
     )
 
+    # Search-based validation: get target verse key before scoring.
+    search_override: tuple[float, bool] | None = None
+    cur_round = match_engine.current_round(match)
+    if cur_round and cur_round.target_ayat_csv:
+        target_verse_key = cur_round.target_ayat_csv.split(",")[0]
+        base_words = normalize(cur_round.target_text or "")
+        asr_words  = normalize(transcript)
+        base = score_round(base_words, asr_words)
+        if not base.passed or base.accuracy < 0.92:
+            sr = await search_verse(transcript, target_verse_key)
+            boosted_acc, boosted_passed = search_boost(base.accuracy, base.passed, sr)
+            if boosted_passed and not base.passed:
+                search_override = (boosted_acc, boosted_passed)
+
     try:
         match_engine.submit_score(
-            db, match=match, user_id=current.id, transcript=transcript
+            db, match=match, user_id=current.id,
+            transcript=transcript,
+            search_override=search_override,
         )
     except match_engine.NotYourTurn as e:
         raise HTTPException(403, detail=str(e))

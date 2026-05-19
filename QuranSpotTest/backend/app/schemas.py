@@ -29,6 +29,8 @@ class UserOut(BaseModel):
     rating: int
     games_played: int
     created_at: datetime
+    bio: str | None = None
+    avatar_data: str | None = None
 
 
 class AuthResponse(BaseModel):
@@ -131,9 +133,66 @@ class AcceptInviteResponse(BaseModel):
     match_id: int
 
 
+class SurahChoice(BaseModel):
+    surah_number: int
+    name_en: str
+    name_ar: str
+
+
 class SoloPickResponse(BaseModel):
-    surah: int
-    start_ayah: int
-    start_ayah_text_uthmani: str
-    surah_name_en: str
-    surah_name_ar: str
+    challenge_type: str = "recite"  # "recite" | "guess_surah" | "guess_ayah_number" | "guess_surah_number" | "mutashabih"
+
+    # ── recite mode ───────────────────────────────────────────────────────────
+    surah: int | None = None
+    start_ayah: int | None = None
+    start_ayah_text_uthmani: str | None = None
+    surah_name_en: str = ""
+    surah_name_ar: str = ""
+
+    # ── quiz modes (shown to user) ─────────────────────────────────────────────
+    ayah_text_uthmani: str | None = None
+    # shown for guess_ayah_number only (user needs to know which surah):
+    quiz_surah_name_en: str | None = None
+    quiz_surah_name_ar: str | None = None
+
+    # ── correct answers (sent to client — this is a practice app, not a test) ──
+    correct_surah_number: int | None = None
+    correct_surah_name_en: str | None = None
+    correct_surah_name_ar: str | None = None
+    correct_ayah_number: int | None = None
+
+    # ── multiple-choice options ────────────────────────────────────────────────
+    surah_choices: list[SurahChoice] = []   # for guess_surah + guess_surah_number
+    number_choices: list[int] = []           # for guess_ayah_number
+
+    # ── mutashabih mode ────────────────────────────────────────────────────────
+    # Show ayah_text_uthmani (from above); user identifies which of two locations it belongs to.
+    peer_text_uthmani: str | None = None    # the other similar ayah for context
+    peer_surah_number: int | None = None
+    peer_ayah_number: int | None = None
+    peer_surah_name_en: str | None = None
+    peer_surah_name_ar: str | None = None
+    similarity_type: str | None = None     # "repeated" | "similar"
+
+
+class UpdateProfileRequest(BaseModel):
+    display_name: str | None = Field(default=None, min_length=2, max_length=40)
+    memorized_juz: list[int] | None = None
+    memorized_surahs: list[int] | None = None
+    bio: str | None = Field(default=None, max_length=200)
+    avatar_data: str | None = None  # base64-encoded JPEG from client-side canvas
+
+
+class LeaderboardEntry(BaseModel):
+    rank: int
+    id: int
+    display_name: str
+    rating: int
+    games_played: int
+    juz_equivalent: float
+    memorized_ayat_count: int
+
+
+class LeaderboardResponse(BaseModel):
+    entries: list[LeaderboardEntry]
+    total_players: int

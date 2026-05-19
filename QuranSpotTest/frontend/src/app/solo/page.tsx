@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import { NavBar } from "@/components/NavBar";
 import { Recorder } from "@/components/Recorder";
 import { ApiError, api, getToken } from "@/lib/api";
 import type { ScoreResult, SoloPick, User } from "@/lib/types";
@@ -24,7 +24,7 @@ export default function SoloPage() {
     setError(null);
     setPhase({ kind: "loading" });
     try {
-      const pick = await api.soloPick();
+      const pick = await api.soloPick("recite");
       setPhase({ kind: "ready", pick });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "could not pick an ayah");
@@ -47,7 +47,7 @@ export default function SoloPage() {
   }, [router, pickNext]);
 
   async function handleRecording(blob: Blob) {
-    if (phase.kind !== "ready") return;
+    if (phase.kind !== "ready" || phase.pick.challenge_type !== "recite") return;
     setPhase({ kind: "scoring", pick: phase.pick });
     setError(null);
     try {
@@ -63,50 +63,48 @@ export default function SoloPage() {
     }
   }
 
-  if (!me) return <p className="p-6 text-slate-600">Loading…</p>;
+  if (!me) return (
+    <>
+      <NavBar />
+      <p className="p-6 text-slate-400">Loading…</p>
+    </>
+  );
 
   return (
-    <main className="min-h-screen p-4 md:p-6 max-w-3xl mx-auto">
-      <header className="flex justify-between items-center mb-6">
-        <Link
-          href="/lobby"
-          className="text-sm text-slate-700 hover:text-slate-900 underline"
-        >
-          ← Back to lobby
-        </Link>
-        <h1 className="text-2xl font-bold text-slate-900">Solo practice</h1>
-      </header>
+    <>
+      <NavBar />
+      <main className="max-w-3xl mx-auto p-4 md:p-6">
+        {phase.kind === "loading" && (
+          <p className="text-slate-400">Selecting a random ayah from your memorized set…</p>
+        )}
 
-      {phase.kind === "loading" && (
-        <p className="text-slate-600">Picking a random ayah from your memorized set…</p>
-      )}
+        {(phase.kind === "ready" || phase.kind === "scoring") && (
+          <PromptPanel
+            pick={phase.pick}
+            scoring={phase.kind === "scoring"}
+            onComplete={handleRecording}
+          />
+        )}
 
-      {(phase.kind === "ready" || phase.kind === "scoring") && (
-        <PrompPanel
-          pick={phase.pick}
-          scoring={phase.kind === "scoring"}
-          onComplete={handleRecording}
-        />
-      )}
+        {phase.kind === "result" && (
+          <ResultCard
+            pick={phase.pick}
+            result={phase.result}
+            onNext={pickNext}
+          />
+        )}
 
-      {phase.kind === "result" && (
-        <ResultCard
-          pick={phase.pick}
-          result={phase.result}
-          onNext={pickNext}
-        />
-      )}
-
-      {error && (
-        <p className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
-          {error}
-        </p>
-      )}
-    </main>
+        {error && (
+          <p className="mt-4 text-sm text-red-400 bg-red-950 border border-red-800 rounded px-3 py-2">
+            {error}
+          </p>
+        )}
+      </main>
+    </>
   );
 }
 
-function PrompPanel({
+function PromptPanel({
   pick,
   scoring,
   onComplete,
@@ -115,31 +113,45 @@ function PrompPanel({
   scoring: boolean;
   onComplete: (blob: Blob) => void;
 }) {
+  if (pick.challenge_type !== "recite") return null;
   return (
-    <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 space-y-4">
-      <div>
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">
-          {pick.surah_name_en} ({pick.surah}:{pick.start_ayah})
-        </p>
-        <p
-          dir="rtl"
-          className="quran-text text-2xl bg-slate-50 rounded-lg p-4 border border-slate-200"
-        >
-          {pick.start_ayah_text_uthmani}
-        </p>
-        <p className="text-sm text-slate-700 mt-3">
-          Recite{" "}
-          <span className="font-semibold text-emerald-800">
-            the next ayah ({pick.surah}:{pick.start_ayah + 1})
-          </span>{" "}
-          in full — up to 15 seconds.
-        </p>
+    <section className="bg-slate-900 rounded-xl border border-slate-800 p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-0.5">
+            {pick.surah_name_en} · {pick.surah}:{pick.start_ayah}
+          </p>
+          <p className="text-sm text-slate-400">
+            Recite the{" "}
+            <span className="font-semibold text-emerald-400">next ayah</span>{" "}
+            in full
+          </p>
+        </div>
+        <div className="flex flex-col items-center">
+          <span
+            dir="rtl"
+            className="font-arabic text-4xl font-bold text-emerald-400 leading-none"
+          >
+            !أكمل
+          </span>
+          <span className="text-[10px] uppercase tracking-widest text-emerald-600 mt-0.5">
+            continue
+          </span>
+        </div>
       </div>
+
+      <p
+        dir="rtl"
+        className="quran-text text-2xl bg-slate-800 rounded-lg p-4 border border-slate-700 text-slate-100"
+      >
+        {pick.start_ayah_text_uthmani}
+      </p>
+
       <div className="max-w-sm">
-        <Recorder maxSeconds={15} disabled={scoring} onComplete={onComplete} />
+        <Recorder disabled={scoring} onComplete={onComplete} />
       </div>
       {scoring && (
-        <p className="text-sm text-slate-600">Transcribing & scoring…</p>
+        <p className="text-sm text-slate-400">Transcribing & scoring…</p>
       )}
     </section>
   );
@@ -154,39 +166,35 @@ function ResultCard({
   result: ScoreResult;
   onNext: () => void;
 }) {
+  if (pick.challenge_type !== "recite") return null;
   const pct = Math.round(result.accuracy * 100);
   let statusLabel: string;
   let statusClasses: string;
   if (result.reason === "no_speech") {
     statusLabel = "No speech detected";
-    statusClasses = "bg-amber-100 text-amber-900 border-amber-300";
+    statusClasses = "bg-amber-900/50 text-amber-300 border-amber-700";
   } else if (result.passed) {
     statusLabel = "Passed";
-    statusClasses = "bg-emerald-100 text-emerald-900 border-emerald-300";
+    statusClasses = "bg-emerald-900/50 text-emerald-300 border-emerald-700";
   } else {
     statusLabel = "Mistake detected";
-    statusClasses = "bg-red-100 text-red-900 border-red-300";
+    statusClasses = "bg-red-900/50 text-red-300 border-red-800";
   }
 
   return (
-    <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 space-y-5">
+    <section className="bg-slate-900 rounded-xl border border-slate-800 p-6 space-y-5">
       <div className="flex items-start justify-between gap-4">
-        <h2 className="text-2xl font-bold text-slate-900">{statusLabel}</h2>
-        <span
-          className={`px-3 py-1 rounded-full text-lg font-bold border ${statusClasses}`}
-        >
+        <h2 className="text-2xl font-bold text-slate-100">{statusLabel}</h2>
+        <span className={`px-3 py-1 rounded-full text-lg font-bold border ${statusClasses}`}>
           {pct}%
         </span>
       </div>
 
       <div>
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-          You were asked to continue from
+          You were asked to أكمل from
         </p>
-        <p
-          dir="rtl"
-          className="quran-text text-2xl bg-slate-50 rounded-lg p-4 border border-slate-200"
-        >
+        <p dir="rtl" className="quran-text text-2xl bg-slate-800 rounded-lg p-4 border border-slate-700 text-slate-100">
           {pick.start_ayah_text_uthmani}
         </p>
         <p className="text-xs text-slate-500 mt-1">
@@ -198,10 +206,7 @@ function ResultCard({
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
           Expected next ayah
         </p>
-        <p
-          dir="rtl"
-          className="quran-text text-2xl bg-slate-50 rounded-lg p-4 border border-slate-200"
-        >
+        <p dir="rtl" className="quran-text text-2xl bg-slate-800 rounded-lg p-4 border border-slate-700 text-slate-100">
           {result.target_text_uthmani}
         </p>
       </div>
@@ -210,12 +215,9 @@ function ResultCard({
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
           You said
         </p>
-        <p
-          dir="rtl"
-          className="quran-text text-2xl bg-slate-50 rounded-lg p-4 border border-slate-200"
-        >
+        <p dir="rtl" className="quran-text text-2xl bg-slate-800 rounded-lg p-4 border border-slate-700 text-slate-100">
           {result.transcript || (
-            <span dir="ltr" className="text-slate-400 font-sans text-base">
+            <span dir="ltr" className="text-slate-500 font-sans text-base">
               (no transcript)
             </span>
           )}
@@ -225,9 +227,9 @@ function ResultCard({
       <button
         type="button"
         onClick={onNext}
-        className="w-full bg-emerald-600 text-white rounded-lg py-2.5 font-semibold hover:bg-emerald-700 transition-colors"
+        className="w-full bg-emerald-600 text-white rounded-lg py-2.5 font-semibold hover:bg-emerald-500 transition-colors"
       >
-        Try another ayah
+        Next challenge →
       </button>
     </section>
   );

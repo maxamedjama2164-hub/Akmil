@@ -1,14 +1,18 @@
 import type {
   AuthResponse,
+  ChallengeType,
   CoverageResponse,
   Invite,
+  LeaderboardResponse,
   MatchState,
   QuickmatchResponse,
   ScoreResult,
   SoloPick,
   SurahDetail,
   SurahMeta,
+  SurahSimilarity,
   User,
+  VerseInfo,
 } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
@@ -119,7 +123,8 @@ export const api = {
     return postMultipart<ScoreResult>("/api/score", fd);
   },
 
-  soloPick: () => request<SoloPick>("/api/solo/pick"),
+  soloPick: (challengeType: ChallengeType = "recite") =>
+    request<SoloPick>(`/api/solo/pick?challenge_type=${challengeType}`),
 
   quickmatch: (body: { round_count: number }) =>
     request<QuickmatchResponse>("/api/matches/quickmatch", {
@@ -162,4 +167,24 @@ export const api = {
       `/api/matches/private/${code}/cancel`,
       { method: "POST" },
     ),
+
+  surahSimilarity: (n: number) =>
+    request<SurahSimilarity>(`/api/quran/surah/${n}/similarity`),
+  verseInfo: (surah: number, ayah: number) =>
+    request<VerseInfo>(`/api/quran/verse/${surah}/${ayah}/info`),
+
+  leaderboard: (limit = 50) =>
+    request<LeaderboardResponse>(`/api/leaderboard?limit=${limit}`),
+
+  updateProfile: (body: {
+    display_name?: string;
+    memorized_juz?: number[];
+    memorized_surahs?: number[];
+    bio?: string;
+    avatar_data?: string;
+  }) =>
+    request<User>("/api/auth/me", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
 };

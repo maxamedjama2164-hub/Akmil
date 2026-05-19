@@ -24,7 +24,7 @@ def normalize(text: str) -> list[str]:
     Transformations:
       1. Strip all tashkeel (fatha, kasra, damma, shadda, sukoon, ...).
       2. Strip tatweel (the kashida U+0640).
-      3. Collapse hamza variants: أ إ آ ٱ → ا.
+      3. Collapse hamza variants: أ إ آ ٱ → ا, ؤ → و, ئ → ي, ء → (drop).
       4. Collapse alif maqsura: ى → ي.
       5. Collapse ta marbuta: ة → ه.
       6. Drop everything outside the Arabic block.
@@ -39,6 +39,9 @@ def normalize(text: str) -> list[str]:
         .replace("إ", "ا")  # إ → ا
         .replace("آ", "ا")  # آ → ا
         .replace("ٱ", "ا")  # ٱ → ا (alif wasla)
+        .replace("ؤ", "و")  # ؤ → و (hamza on waw)
+        .replace("ئ", "ي")  # ئ → ي (hamza on ya)
+        .replace("ء", "")   # bare hamza — Whisper often omits entirely
         .replace("ى", "ي")  # ى → ي
         .replace("ة", "ه")  # ة → ه
     )

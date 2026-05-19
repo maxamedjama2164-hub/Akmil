@@ -11,6 +11,7 @@ from app.routes import (
     auth_routes,
     coverage_routes,
     dev_routes,
+    leaderboard_routes,
     match_routes,
     quran_routes,
     score_routes,
@@ -20,6 +21,7 @@ from app.routes import (
 from app.services.invite_registry import InviteRegistry
 from app.services.matchmaker import Matchmaker
 from app.services.quran_service import QuranService
+from app.services.similarity_service import SimilarityService
 from app.services.whisper_service import WhisperService
 from app.ws.connection_manager import ConnectionManager
 
@@ -30,6 +32,7 @@ log = logging.getLogger("quranspot")
 async def lifespan(app: FastAPI):
     init_db()
     app.state.quran = QuranService()
+    app.state.similarity = SimilarityService(settings.quran_db_path)
     app.state.matchmaker = Matchmaker()
     app.state.invites = InviteRegistry()
     app.state.connections = ConnectionManager()
@@ -57,6 +60,7 @@ app.add_middleware(
 
 app.include_router(auth_routes.router)
 app.include_router(coverage_routes.router)
+app.include_router(leaderboard_routes.router)
 app.include_router(dev_routes.router)
 app.include_router(quran_routes.router)
 app.include_router(score_routes.router)

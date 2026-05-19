@@ -34,6 +34,8 @@ class User(Base):
     rating: Mapped[int] = mapped_column(Integer, nullable=False, default=1200)
     games_played: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    bio: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    avatar_data: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     @property
     def memorized_juz(self) -> set[int]:

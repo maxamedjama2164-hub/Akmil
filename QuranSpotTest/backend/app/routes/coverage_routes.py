@@ -12,11 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.schemas import CoverageRequest, CoverageResponse
-from app.services.tiers import (
-    is_valid_juz,
-    is_valid_surah,
-    juz_equivalents_for_ayat,
-)
+from app.services.tiers import is_valid_juz, is_valid_surah
 
 router = APIRouter(prefix="/api", tags=["coverage"])
 
@@ -33,5 +29,5 @@ def coverage(
     ayat = quran.count_memorized_ayat(juz, surahs)
     return CoverageResponse(
         memorized_ayat_count=ayat,
-        juz_equivalent=round(juz_equivalents_for_ayat(ayat), 2),
+        juz_equivalent=round(quran.compute_juz_equivalent(juz, surahs), 2),
     )

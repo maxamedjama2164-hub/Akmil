@@ -1,37 +1,49 @@
 """Solo practice — the server picks a random ayah from the user's memorized
-set and the frontend just shows it. Auth-required.
+set and returns a challenge based on the requested challenge_type.
+
+Challenge types
+  recite            — show start ayah, user must recite the next one (default)
+  guess_surah       — show full ayah, user picks which surah it's from (4 choices)
+  guess_ayah_number — show full ayah + surah name, user picks the ayah number (4 choices)
+  guess_surah_number — show full ayah, user picks the surah NUMBER (4 choices)
+  mutashabih        — show one of two similar/repeated ayahs, pick which location it belongs to
+  mix               — backend randomly picks one of the above types
 """
 
+import random
 import sqlite3
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.auth import get_current_user
 from app.config import settings
 from app.models import User
-from app.schemas import SoloPickResponse
+from app.schemas import SoloPickResponse, SurahChoice
 from app.services.tiers import parse_memorized_csv
 
 router = APIRouter(prefix="/api/solo", tags=["solo"])
 
+CHALLENGE_TYPES = ["recite", "guess_surah", "guess_ayah_number", "guess_surah_number", "mutashabih"]
+# mix only picks from user-memorized-set modes; mutashabih draws from global index
+MIX_TYPES = ["recite", "guess_surah", "guess_ayah_number", "guess_surah_number"]
 
-@router.get("/pick", response_model=SoloPickResponse)
-def random_pick(
-    request: Request,
-    current: Annotated[User, Depends(get_current_user)],
-) -> SoloPickResponse:
-    mj = parse_memorized_csv(current.memorized_juz_csv)
-    ms = parse_memorized_csv(current.memorized_surahs_csv)
-    if not mj and not ms:
-        raise HTTPException(
-            400, detail="set your memorized juz'/surahs first"
-        )
 
-    # Random ayah from (memorized juz ∪ memorized surahs), excluding the
-    # last ayah of the Quran (114:6) which has no continuation.
-    clauses: list[str] = []
-    params: list[int] = []
+def _open_db():
+    conn = sqlite3.connect(f"file:{settings.quran_db_path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _all_surahs(conn) -> list[tuple[int, str, str, int]]:
+    """Return [(id, name_en, name_ar, ayat_count)] for all 114 surahs."""
+    rows = conn.execute("SELECT id, name_en, name_ar, ayat_count FROM surah ORDER BY id").fetchall()
+    return [(r["id"], r["name_en"], r["name_ar"], r["ayat_count"]) for r in rows]
+
+
+def _pick_memorized_ayah(conn, mj: set[int], ms: set[int], exclude_last: bool = True) -> sqlite3.Row | None:
+    """Pick a random ayah from the user's memorized set."""
+    clauses, params = [], []
     if mj:
         ph = ",".join(["?"] * len(mj))
         clauses.append(f"a.juz IN ({ph})")
@@ -41,31 +53,177 @@ def random_pick(
         clauses.append(f"a.surah IN ({ph})")
         params.extend(sorted(ms))
     where = " OR ".join(clauses)
-
+    last_exc = "AND NOT (a.surah = 114 AND a.number = 6)" if exclude_last else ""
     sql = (
-        "SELECT a.surah, a.number, a.text_uthmani, "
-        "       s.name_en, s.name_ar "
+        "SELECT a.surah, a.number, a.text_uthmani, a.juz, "
+        "       s.name_en, s.name_ar, s.ayat_count "
         "FROM ayah a JOIN surah s ON s.id = a.surah "
-        f"WHERE ({where}) AND NOT (a.surah = 114 AND a.number = 6) "
+        f"WHERE ({where}) {last_exc} "
         "ORDER BY RANDOM() LIMIT 1"
     )
+    return conn.execute(sql, params).fetchone()
 
-    conn = sqlite3.connect(f"file:{settings.quran_db_path}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
+
+def _surah_choices(all_surahs: list, correct_id: int, n_wrong: int = 3) -> list[SurahChoice]:
+    """Build a shuffled list of 4 surah choices (1 correct + n_wrong wrong)."""
+    correct = next((s for s in all_surahs if s[0] == correct_id), None)
+    if correct is None:
+        return []
+    wrong_pool = [s for s in all_surahs if s[0] != correct_id]
+    wrong = random.sample(wrong_pool, min(n_wrong, len(wrong_pool)))
+    choices = [SurahChoice(surah_number=correct[0], name_en=correct[1], name_ar=correct[2])]
+    choices += [SurahChoice(surah_number=s[0], name_en=s[1], name_ar=s[2]) for s in wrong]
+    random.shuffle(choices)
+    return choices
+
+
+def _number_choices(correct: int, ayat_count: int, n_wrong: int = 3) -> list[int]:
+    """Build a sorted list of 4 ayah-number choices (1 correct + n_wrong nearby wrong)."""
+    # Prefer numbers close to the correct one so the question is non-trivial.
+    radius = 5
+    candidates = [
+        n for n in range(max(1, correct - radius), min(ayat_count + 1, correct + radius + 1))
+        if n != correct
+    ]
+    if len(candidates) < n_wrong:
+        # Widen if surah is short
+        candidates = [n for n in range(1, ayat_count + 1) if n != correct]
+    wrong = random.sample(candidates, min(n_wrong, len(candidates)))
+    return sorted([correct] + wrong)
+
+
+@router.get("/pick", response_model=SoloPickResponse)
+def random_pick(
+    request: Request,
+    current: Annotated[User, Depends(get_current_user)],
+    challenge_type: str = Query(default="recite"),
+) -> SoloPickResponse:
+    mj = parse_memorized_csv(current.memorized_juz_csv)
+    ms = parse_memorized_csv(current.memorized_surahs_csv)
+    if not mj and not ms:
+        raise HTTPException(400, detail="set your memorized juz'/surahs first")
+
+    if challenge_type == "mix":
+        challenge_type = random.choice(MIX_TYPES)
+    if challenge_type not in CHALLENGE_TYPES:
+        raise HTTPException(400, detail=f"unknown challenge_type: {challenge_type!r}")
+
+    conn = _open_db()
     try:
-        row = conn.execute(sql, params).fetchone()
+        all_surahs = _all_surahs(conn)
+        row = _pick_memorized_ayah(conn, mj, ms, exclude_last=(challenge_type == "recite"))
     finally:
         conn.close()
 
     if row is None:
-        raise HTTPException(
-            404, detail="no eligible ayah in your memorized set"
+        raise HTTPException(404, detail="no eligible ayah in your memorized set")
+
+    # ── Recite mode (existing behaviour) ──────────────────────────────────────
+    if challenge_type == "recite":
+        return SoloPickResponse(
+            challenge_type="recite",
+            surah=row["surah"],
+            start_ayah=row["number"],
+            start_ayah_text_uthmani=row["text_uthmani"],
+            surah_name_en=row["name_en"],
+            surah_name_ar=row["name_ar"],
         )
 
-    return SoloPickResponse(
-        surah=row["surah"],
-        start_ayah=row["number"],
-        start_ayah_text_uthmani=row["text_uthmani"],
-        surah_name_en=row["name_en"],
-        surah_name_ar=row["name_ar"],
-    )
+    # ── Shared quiz setup ─────────────────────────────────────────────────────
+    correct_surah = row["surah"]
+    correct_ayah  = row["number"]
+    ayat_count    = row["ayat_count"]
+    name_en       = row["name_en"]
+    name_ar       = row["name_ar"]
+    text_uthmani  = row["text_uthmani"]
+
+    if challenge_type == "guess_surah":
+        return SoloPickResponse(
+            challenge_type="guess_surah",
+            ayah_text_uthmani=text_uthmani,
+            correct_surah_number=correct_surah,
+            correct_surah_name_en=name_en,
+            correct_surah_name_ar=name_ar,
+            correct_ayah_number=correct_ayah,
+            surah_choices=_surah_choices(all_surahs, correct_surah),
+        )
+
+    if challenge_type == "guess_surah_number":
+        return SoloPickResponse(
+            challenge_type="guess_surah_number",
+            ayah_text_uthmani=text_uthmani,
+            correct_surah_number=correct_surah,
+            correct_surah_name_en=name_en,
+            correct_surah_name_ar=name_ar,
+            correct_ayah_number=correct_ayah,
+            surah_choices=_surah_choices(all_surahs, correct_surah),
+        )
+
+    if challenge_type == "guess_ayah_number":
+        return SoloPickResponse(
+            challenge_type="guess_ayah_number",
+            ayah_text_uthmani=text_uthmani,
+            # Surah name IS shown — user only needs to guess the number
+            quiz_surah_name_en=name_en,
+            quiz_surah_name_ar=name_ar,
+            correct_surah_number=correct_surah,
+            correct_surah_name_en=name_en,
+            correct_surah_name_ar=name_ar,
+            correct_ayah_number=correct_ayah,
+            number_choices=_number_choices(correct_ayah, ayat_count),
+        )
+
+    if challenge_type == "mutashabih":
+        similarity = request.app.state.similarity
+        pair = similarity.random_similar_pair()
+        if pair is None:
+            raise HTTPException(503, detail="similarity index not ready")
+
+        (s1, n1), (s2, n2), kind = pair
+
+        # The main conn was already closed above — open a fresh one for the
+        # two mutashabih row lookups.
+        conn2 = _open_db()
+        try:
+            r1 = conn2.execute(
+                "SELECT a.text_uthmani, s.name_en, s.name_ar "
+                "FROM ayah a JOIN surah s ON s.id = a.surah "
+                "WHERE a.surah = ? AND a.number = ?",
+                (s1, n1),
+            ).fetchone()
+            r2 = conn2.execute(
+                "SELECT a.text_uthmani, s.name_en, s.name_ar "
+                "FROM ayah a JOIN surah s ON s.id = a.surah "
+                "WHERE a.surah = ? AND a.number = ?",
+                (s2, n2),
+            ).fetchone()
+        finally:
+            conn2.close()
+
+        if r1 is None or r2 is None:
+            raise HTTPException(503, detail="ayah data unavailable for mutashabih pair")
+
+        # Randomly show one as the question; the other is the peer
+        if random.random() < 0.5:
+            question_s, question_n, question_r = s1, n1, r1
+            peer_s, peer_n, peer_r = s2, n2, r2
+        else:
+            question_s, question_n, question_r = s2, n2, r2
+            peer_s, peer_n, peer_r = s1, n1, r1
+
+        return SoloPickResponse(
+            challenge_type="mutashabih",
+            ayah_text_uthmani=question_r["text_uthmani"],
+            correct_surah_number=question_s,
+            correct_surah_name_en=question_r["name_en"],
+            correct_surah_name_ar=question_r["name_ar"],
+            correct_ayah_number=question_n,
+            peer_text_uthmani=peer_r["text_uthmani"],
+            peer_surah_number=peer_s,
+            peer_ayah_number=peer_n,
+            peer_surah_name_en=peer_r["name_en"],
+            peer_surah_name_ar=peer_r["name_ar"],
+            similarity_type=kind,
+        )
+
+    raise HTTPException(400, detail="unhandled challenge_type")

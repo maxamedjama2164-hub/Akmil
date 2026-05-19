@@ -22,6 +22,11 @@ data/app.sqlite-shm
 data/recordings/*
 !data/recordings/.gitkeep
 
+# Large generated / model files — not source code
+data/quran.sqlite
+data/similarity.json
+data/tarteel-base-ct2/
+
 # Env
 .env
 .env.local

@@ -12,6 +12,8 @@ export type User = {
   rating: number;
   games_played: number;
   created_at: string;
+  bio: string | null;
+  avatar_data: string | null;
 };
 
 export type AuthResponse = {
@@ -126,10 +128,79 @@ export type Invite = {
   challenger_memorized_surahs: number[];
 };
 
-export type SoloPick = {
+export type ChallengeType = "recite" | "guess_surah" | "guess_ayah_number" | "guess_surah_number" | "mutashabih" | "mix";
+
+export type SurahChoice = {
+  surah_number: number;
+  name_en: string;
+  name_ar: string;
+};
+
+export type SoloPickRecite = {
+  challenge_type: "recite";
   surah: number;
   start_ayah: number;
   start_ayah_text_uthmani: string;
   surah_name_en: string;
   surah_name_ar: string;
+};
+
+export type SoloPickQuiz = {
+  challenge_type: "guess_surah" | "guess_ayah_number" | "guess_surah_number";
+  ayah_text_uthmani: string;
+  // shown to user only for guess_ayah_number:
+  quiz_surah_name_en: string | null;
+  quiz_surah_name_ar: string | null;
+  // correct answers:
+  correct_surah_number: number;
+  correct_surah_name_en: string;
+  correct_surah_name_ar: string;
+  correct_ayah_number: number;
+  // multiple-choice options:
+  surah_choices: SurahChoice[];   // guess_surah + guess_surah_number
+  number_choices: number[];        // guess_ayah_number
+};
+
+export type SoloPickMutashabih = {
+  challenge_type: "mutashabih";
+  ayah_text_uthmani: string;       // the ayah being shown — user identifies its location
+  peer_text_uthmani: string;        // the similar ayah (for context)
+  correct_surah_number: number;
+  correct_surah_name_en: string;
+  correct_surah_name_ar: string;
+  correct_ayah_number: number;
+  peer_surah_number: number;
+  peer_ayah_number: number;
+  peer_surah_name_en: string;
+  peer_surah_name_ar: string;
+  similarity_type: "repeated" | "similar";
+};
+
+export type SoloPick = SoloPickRecite | SoloPickQuiz | SoloPickMutashabih;
+
+export type LeaderboardEntry = {
+  rank: number;
+  id: number;
+  display_name: string;
+  rating: number;
+  games_played: number;
+  juz_equivalent: number;
+  memorized_ayat_count: number;
+};
+
+export type LeaderboardResponse = {
+  entries: LeaderboardEntry[];
+  total_players: number;
+};
+
+export type AyahStatus = "repeated" | "similar";
+export type SurahSimilarity = Record<string, AyahStatus>;
+export type VerseInfo = {
+  verse_key: string;
+  page_number: number | null;
+  juz_number: number | null;
+  hizb_number: number | null;
+  sajdah_type: string | null;
+  translation_en: string;
+  error?: string;
 };

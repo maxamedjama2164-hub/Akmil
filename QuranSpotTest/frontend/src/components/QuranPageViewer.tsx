@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, api } from "@/lib/api";
-import type { AyahMeta, SurahMeta } from "@/lib/types";
+import type { AyahMeta, AyahStatus, SurahMeta, SurahSimilarity, VerseInfo } from "@/lib/types";
 
 type Props = {
   surahs: SurahMeta[];
@@ -33,8 +33,12 @@ export function QuranPageViewer({
 }: Props) {
   const [search, setSearch] = useState("");
   const [ayat, setAyat] = useState<AyahMeta[]>([]);
+  const [similarity, setSimilarity] = useState<SurahSimilarity>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [infoAyah, setInfoAyah] = useState<{ surah: number; number: number } | null>(null);
+  const [verseInfo, setVerseInfo] = useState<VerseInfo | null>(null);
+  const [infoLoading, setInfoLoading] = useState(false);
   const selectedRef = useRef<HTMLSpanElement | null>(null);
   const surahButtonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -80,18 +84,39 @@ export function QuranPageViewer({
   useEffect(() => {
     if (surah === null) {
       setAyat([]);
+      setSimilarity({});
       return;
     }
     setLoading(true);
     setError(null);
-    api
-      .surah(surah)
-      .then((d) => setAyat(d.ayat))
+    setInfoAyah(null);
+    setVerseInfo(null);
+    Promise.all([
+      api.surah(surah),
+      api.surahSimilarity(surah).catch(() => ({} as SurahSimilarity)),
+    ])
+      .then(([detail, sim]) => {
+        setAyat(detail.ayat);
+        setSimilarity(sim);
+      })
       .catch((e) =>
         setError(e instanceof ApiError ? e.message : "failed to load ayat"),
       )
       .finally(() => setLoading(false));
   }, [surah]);
+
+  function handleInfoClick(e: React.MouseEvent, s: number, n: number) {
+    e.stopPropagation();
+    if (infoAyah?.surah === s && infoAyah?.number === n) {
+      setInfoAyah(null);
+      setVerseInfo(null);
+      return;
+    }
+    setInfoAyah({ surah: s, number: n });
+    setVerseInfo(null);
+    setInfoLoading(true);
+    api.verseInfo(s, n).then(setVerseInfo).finally(() => setInfoLoading(false));
+  }
 
   useEffect(() => {
     if (ayah !== null && selectedRef.current) {
@@ -190,6 +215,45 @@ export function QuranPageViewer({
               </span>
             </header>
 
+            {/* Legend — only shown when the surah has marked ayat */}
+            {(Object.values(similarity).includes("repeated") || Object.values(similarity).includes("similar")) && (
+              <div className="px-5 py-2 border-b border-slate-100 flex flex-wrap gap-3 text-xs text-slate-600">
+                {Object.values(similarity).includes("repeated") && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block w-3 h-3 rounded bg-red-200 ring-1 ring-red-400" />
+                    Repeated verbatim elsewhere
+                  </span>
+                )}
+                {Object.values(similarity).includes("similar") && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block w-3 h-3 rounded bg-orange-200 ring-1 ring-orange-400" />
+                    Very similar to another ayah
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Verse info panel — Quran Foundation API translation */}
+            {infoAyah && (
+              <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 text-sm">
+                {infoLoading && <p className="text-slate-400">Loading translation…</p>}
+                {!infoLoading && verseInfo && !verseInfo.error && (
+                  <div className="space-y-1">
+                    <p className="text-slate-700 leading-relaxed">{verseInfo.translation_en}</p>
+                    <p className="text-xs text-slate-400 flex gap-3">
+                      {verseInfo.page_number != null && <span>Page {verseInfo.page_number}</span>}
+                      {verseInfo.hizb_number != null && <span>Hizb {verseInfo.hizb_number}</span>}
+                      {verseInfo.sajdah_type && <span className="text-indigo-500">Sajdah ({verseInfo.sajdah_type})</span>}
+                      <span className="text-slate-300">· Saheeh International</span>
+                    </p>
+                  </div>
+                )}
+                {!infoLoading && verseInfo?.error && (
+                  <p className="text-red-500 text-xs">Could not load translation</p>
+                )}
+              </div>
+            )}
+
             <div
               dir="rtl"
               className="quran-text flex-1 overflow-y-auto px-6 py-5 text-2xl text-slate-900"
@@ -215,6 +279,8 @@ export function QuranPageViewer({
                     !hasFilter ||
                     (surahSet?.has(surah ?? -1) ?? false) ||
                     (juzSet?.has(a.juz) ?? false);
+                  const status = similarity[String(a.number)] as AyahStatus | undefined;
+                  const infoOpen = infoAyah?.surah === surah && infoAyah?.number === a.number;
                   const handlePick = () => {
                     if (allowedHere) onChange({ surah, ayah: a.number });
                   };
@@ -239,7 +305,11 @@ export function QuranPageViewer({
                             ? "text-slate-400 cursor-not-allowed"
                             : active
                               ? "bg-emerald-200 text-emerald-950 ring-2 ring-emerald-500 ring-offset-1 cursor-pointer"
-                              : "hover:bg-emerald-50 cursor-pointer"
+                              : status === "repeated"
+                                ? "bg-red-100 text-red-900 ring-1 ring-red-300 cursor-pointer hover:bg-red-200"
+                                : status === "similar"
+                                  ? "bg-orange-100 text-orange-900 ring-1 ring-orange-300 cursor-pointer hover:bg-orange-200"
+                                  : "hover:bg-emerald-50 cursor-pointer"
                         }`}
                       >
                         {a.text_uthmani}
@@ -260,7 +330,22 @@ export function QuranPageViewer({
                         }
                       >
                         ﴿{toArabicNumerals(a.number)}﴾
-                      </span>{" "}
+                      </span>
+                      {allowedHere && (
+                        <button
+                          dir="ltr"
+                          type="button"
+                          onClick={(e) => handleInfoClick(e, surah!, a.number)}
+                          className={`inline-flex items-center justify-center text-xs w-4 h-4 rounded-full mr-1 transition-colors align-middle ${
+                            infoOpen
+                              ? "bg-slate-600 text-white"
+                              : "bg-slate-200 text-slate-500 hover:bg-slate-300"
+                          }`}
+                          title="Show English translation"
+                        >
+                          i
+                        </button>
+                      )}{" "}
                     </span>
                   );
                 })}

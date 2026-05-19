@@ -8,6 +8,7 @@ crosses a threshold; we smooth it out with four tiers.
 from __future__ import annotations
 
 DEFAULT_RATING = 1200
+ELO_FLOOR = 800
 
 # K-factor schedule: very volatile early, calmer once established.
 #   games_played | K   | per-game swing at 50/50 expectations
@@ -55,4 +56,6 @@ def update_pair(
     e_a = expected(rating_a, rating_b)
     delta_a = k_factor(games_a) * (score_a - e_a)
     delta_b = k_factor(games_b) * ((1.0 - score_a) - (1.0 - e_a))
-    return rating_a + round(delta_a), rating_b + round(delta_b)
+    new_a = max(ELO_FLOOR, rating_a + round(delta_a))
+    new_b = max(ELO_FLOOR, rating_b + round(delta_b))
+    return new_a, new_b

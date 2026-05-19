@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { use, useEffect, useMemo, useRef, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 
 import { QuranPageViewer } from "@/components/QuranPageViewer";
 import { Recorder } from "@/components/Recorder";
@@ -39,7 +39,6 @@ export default function MatchPage({
   const [surahs, setSurahs] = useState<SurahMeta[] | null>(null);
   const [match, setMatch] = useState<MatchState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Round-number → blob URL for the recorded audio
   const [audioByRound, setAudioByRound] = useState<Record<number, string>>({});
   const busyRef = useRef(false);
   const wsRef = useRef<WsClient<MatchMessage> | null>(null);
@@ -77,7 +76,6 @@ export default function MatchPage({
         });
         const url = URL.createObjectURL(blob);
         setAudioByRound((prev) => {
-          // Revoke any previous URL for this round to avoid leaks
           if (prev[msg.round_number]) URL.revokeObjectURL(prev[msg.round_number]);
           return { ...prev, [msg.round_number]: url };
         });
@@ -91,7 +89,6 @@ export default function MatchPage({
     };
   }, [matchId, me]);
 
-  // Revoke blob URLs on unmount
   useEffect(() => {
     return () => {
       for (const url of Object.values(audioByRound)) URL.revokeObjectURL(url);
@@ -99,22 +96,22 @@ export default function MatchPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!me || !surahs) return <p className="p-6 text-slate-600">Loading…</p>;
+  if (!me || !surahs) return <p className="p-6 text-slate-400">Loading…</p>;
   if (error && !match)
     return (
       <main className="p-6 max-w-2xl mx-auto">
-        <p className="text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+        <p className="text-red-400 bg-red-950 border border-red-800 rounded px-3 py-2">
           {error}
         </p>
         <Link
           href="/lobby"
-          className="inline-block mt-4 text-slate-700 hover:text-slate-900 underline"
+          className="inline-block mt-4 text-slate-400 hover:text-slate-200 underline"
         >
           ← Back to lobby
         </Link>
       </main>
     );
-  if (!match) return <p className="p-6 text-slate-600">Loading match…</p>;
+  if (!match) return <p className="p-6 text-slate-400">Loading match…</p>;
 
   const opponent: MatchPlayer =
     match.player_a.id === me.id ? match.player_b : match.player_a;
@@ -124,45 +121,47 @@ export default function MatchPage({
 
   return (
     <main className="min-h-screen p-4 md:p-6 max-w-6xl mx-auto">
+      {/* Header */}
       <header className="flex justify-between items-center mb-4">
         <Link
           href="/lobby"
-          className="text-sm text-slate-700 hover:text-slate-900 underline"
+          className="text-sm text-slate-400 hover:text-slate-200 underline"
         >
           ← Lobby
         </Link>
-        <h1 className="text-xl font-bold text-slate-900">
+        <span className="text-slate-500 text-sm font-mono">
           Match #{match.id}
-          {match.is_private && (
-            <span className="text-slate-500 text-base font-normal">
-              {" "}· private
-            </span>
-          )}
-        </h1>
+          {match.is_private && " · private"}
+        </span>
         <span
-          className={`px-3 py-1 rounded text-xs font-semibold ${
+          className={`px-3 py-1 rounded text-xs font-bold uppercase tracking-wide ${
             match.status === "completed"
-              ? "bg-emerald-100 text-emerald-900 border border-emerald-300"
-              : "bg-blue-100 text-blue-900 border border-blue-300"
+              ? "bg-emerald-950 text-emerald-400 border border-emerald-800"
+              : "bg-amber-950 text-amber-400 border border-amber-800"
           }`}
         >
-          {match.status === "completed" ? "Completed" : "In progress"}
+          {match.status === "completed" ? "Completed" : "Live"}
         </span>
       </header>
 
-      <section className="mb-4 bg-white rounded-lg shadow-sm border border-slate-200 px-4 py-3">
-        <div className="flex justify-between items-center text-sm">
-          <PlayerLine label="You" name={me.display_name} wins={myWins} />
-          <span className="text-slate-400 font-bold">vs</span>
-          <PlayerLine
-            label="Opponent"
-            name={opponent.display_name}
-            wins={oppWins}
-          />
+      {/* Scoreboard */}
+      <section className="mb-4 bg-slate-900 rounded-xl border border-slate-800 px-4 py-4">
+        <div className="flex justify-between items-center">
+          <div className="flex-1 text-center">
+            <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-1">You</div>
+            <div className="font-bold text-slate-100 text-base truncate">{me.display_name}</div>
+            <div className="text-5xl font-black text-emerald-400 leading-none mt-1">{myWins}</div>
+          </div>
+          <div className="text-center px-6">
+            <div className="text-slate-600 text-xs uppercase tracking-widest font-black">vs</div>
+            <div className="text-[10px] text-slate-600 mt-1">Bo{match.round_count}</div>
+          </div>
+          <div className="flex-1 text-center">
+            <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-1">Opponent</div>
+            <div className="font-bold text-slate-100 text-base truncate">{opponent.display_name}</div>
+            <div className="text-5xl font-black text-red-400 leading-none mt-1">{oppWins}</div>
+          </div>
         </div>
-        <p className="text-xs text-slate-500 mt-1.5 text-center">
-          Best of {match.round_count} · roles alternate each round
-        </p>
       </section>
 
       <RoundHistoryStrip match={match} meId={me.id} />
@@ -186,7 +185,7 @@ export default function MatchPage({
           onMatchUpdate={setMatch}
         />
       ) : (
-        <p className="text-slate-600 p-4">Waiting…</p>
+        <p className="text-slate-400 p-4">Waiting…</p>
       )}
     </main>
   );
@@ -199,26 +198,6 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-function PlayerLine({
-  label,
-  name,
-  wins,
-}: {
-  label: string;
-  name: string;
-  wins: number;
-}) {
-  return (
-    <div className="flex-1 text-center">
-      <div className="text-xs uppercase tracking-wide text-slate-500">
-        {label}
-      </div>
-      <div className="font-semibold text-slate-900">{name}</div>
-      <div className="text-lg font-bold text-emerald-700">{wins}</div>
-    </div>
-  );
-}
-
 function RoundHistoryStrip({
   match,
   meId,
@@ -229,26 +208,26 @@ function RoundHistoryStrip({
   return (
     <div className="flex gap-1.5 mb-4">
       {match.rounds.map((r) => {
-        let cls = "bg-slate-100 border-slate-200 text-slate-500";
+        let cls = "bg-slate-800 border-slate-700 text-slate-500";
         let label = `R${r.number}`;
         if (r.finalized) {
           const iWon = r.winner_id === meId;
           cls = iWon
-            ? "bg-emerald-100 border-emerald-400 text-emerald-900"
-            : "bg-red-100 border-red-400 text-red-900";
+            ? "bg-emerald-900/70 border-emerald-600 text-emerald-300"
+            : "bg-red-900/70 border-red-700 text-red-300";
           label = `R${r.number} ${iWon ? "W" : "L"}${r.overridden ? "★" : ""}`;
         } else if (r.transcript) {
-          cls = "bg-purple-100 border-purple-400 text-purple-900";
+          cls = "bg-purple-900/70 border-purple-600 text-purple-300";
           label = `R${r.number} review`;
         } else if (r.status === "picked") {
-          cls = "bg-blue-100 border-blue-400 text-blue-900";
+          cls = "bg-amber-900/70 border-amber-600 text-amber-300";
         } else {
-          cls = "bg-amber-100 border-amber-400 text-amber-900";
+          cls = "bg-slate-800 border-slate-700 text-slate-500";
         }
         return (
           <span
             key={r.number}
-            className={`px-2.5 py-1 rounded border text-xs font-semibold flex-1 text-center ${cls}`}
+            className={`px-2.5 py-1 rounded border text-xs font-bold flex-1 text-center ${cls}`}
           >
             {label}
           </span>
@@ -379,21 +358,21 @@ function PickerPanel({
     : "—";
 
   return (
-    <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
+    <section className="bg-slate-900 rounded-xl border border-slate-800 p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-        <h2 className="text-lg font-semibold text-slate-900">
-          Round {round.number}: your pick
+        <h2 className="text-lg font-bold text-slate-100 uppercase tracking-wide">
+          Round {round.number} — your pick
         </h2>
-        <p className="text-sm text-slate-700">
+        <p className="text-sm text-slate-400">
           Pick an ayah for{" "}
-          <span className="font-semibold">{opponent.display_name}</span>; they
-          will recite the next ayah in full.
+          <span className="font-semibold text-slate-200">{opponent.display_name}</span>;
+          they will recite the next ayah.
         </p>
       </div>
-      <p className="text-xs text-slate-600 mb-3">
+      <p className="text-xs text-slate-500 mb-3">
         Restricted to {opponent.display_name}&apos;s memorized set —{" "}
-        <span className="font-mono text-slate-800">juz: {juzList}</span> ·{" "}
-        <span className="font-mono text-slate-800">surahs: {surahList}</span>
+        <span className="font-mono text-slate-400">juz: {juzList}</span> ·{" "}
+        <span className="font-mono text-slate-400">surahs: {surahList}</span>
       </p>
 
       <QuranPageViewer
@@ -409,11 +388,11 @@ function PickerPanel({
       />
 
       <div className="mt-4 flex items-center justify-between gap-4">
-        <p className="text-sm text-slate-700">
+        <p className="text-sm text-slate-400">
           {surah !== null && ayah !== null ? (
             <>
               Selected:{" "}
-              <span className="font-semibold text-emerald-800">
+              <span className="font-semibold text-emerald-400">
                 {surah}:{ayah}
               </span>
             </>
@@ -425,13 +404,13 @@ function PickerPanel({
           type="button"
           onClick={confirm}
           disabled={surah === null || ayah === null || submitting}
-          className="bg-emerald-600 text-white rounded-lg px-5 py-2.5 font-semibold hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-colors"
+          className="bg-emerald-600 text-white rounded-lg px-5 py-2.5 font-semibold hover:bg-emerald-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
         >
           {submitting ? "Submitting…" : "Confirm pick"}
         </button>
       </div>
       {error && (
-        <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 mt-3">
+        <p className="text-sm text-red-400 bg-red-950 border border-red-800 rounded px-3 py-2 mt-3">
           {error}
         </p>
       )}
@@ -471,26 +450,37 @@ function ReciterPanel({
   }
 
   return (
-    <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
-      <h2 className="text-lg font-semibold text-slate-900 mb-1">
-        Round {round.number}: your recitation
-      </h2>
-      <p className="text-sm text-slate-700 mb-2">
-        Continue from{" "}
-        <span className="font-semibold text-emerald-800">
-          Surah {round.surah}, ayah {(round.start_ayah ?? 0) + 1}
-        </span>{" "}
-        — recite the next ayah in full (up to 15s).
-      </p>
+    <section className="bg-slate-900 rounded-xl border border-slate-800 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-0.5">
+            Round {round.number} · your recitation
+          </p>
+          <p className="text-sm text-slate-400">
+            Recite the <span className="font-semibold text-emerald-400">next ayah</span> — up to 15s
+          </p>
+        </div>
+        <div className="flex flex-col items-center">
+          <span
+            dir="rtl"
+            className="font-arabic text-4xl font-bold text-emerald-400 leading-none drop-shadow-sm"
+          >
+            !أكمل
+          </span>
+          <span className="text-[10px] uppercase tracking-widest text-emerald-600 mt-0.5">
+            continue
+          </span>
+        </div>
+      </div>
 
       {round.start_ayah_text_uthmani && (
-        <div className="mb-4 bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <div className="mb-4 bg-slate-800 border border-slate-700 rounded-lg p-4">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-            Picked ayah ({round.surah}:{round.start_ayah})
+            Continue from
           </p>
           <p
             dir="rtl"
-            className="quran-text text-2xl text-slate-900"
+            className="quran-text text-2xl text-slate-100"
           >
             {round.start_ayah_text_uthmani}
           </p>
@@ -499,20 +489,19 @@ function ReciterPanel({
 
       <div className="max-w-sm">
         <Recorder
-          maxSeconds={15}
           disabled={submitting}
           onComplete={handle}
           liveAudioWs={wsRef.current}
         />
       </div>
       <p className="text-xs text-slate-500 mt-2">
-        Your opponent will hear you live as you recite.
+        Your opponent hears you live as you recite.
       </p>
       {submitting && (
-        <p className="text-sm text-slate-600 mt-3">Transcribing & scoring…</p>
+        <p className="text-sm text-slate-400 mt-3">Transcribing & scoring…</p>
       )}
       {error && (
-        <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 mt-3">
+        <p className="text-sm text-red-400 bg-red-950 border border-red-800 rounded px-3 py-2 mt-3">
           {error}
         </p>
       )}
@@ -532,9 +521,6 @@ function ListenLivePanel({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const receiverRef = useRef<LiveAudioReceiver | null>(null);
   const [streaming, setStreaming] = useState(false);
-  // Live audio defaults to MUTED to avoid a feedback loop when both
-  // browser sessions are on the same machine (picker's speakers → reciter's
-  // mic → garbled recording). Users with headphones can unmute manually.
   const [muted, setMuted] = useState(true);
 
   useEffect(() => {
@@ -562,29 +548,29 @@ function ListenLivePanel({
   }, [wsRef]);
 
   return (
-    <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
-      <div className="flex items-center gap-3 mb-1">
+    <section className="bg-slate-900 rounded-xl border border-slate-800 p-5">
+      <div className="flex items-center gap-3 mb-2">
         <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
-        <h2 className="text-lg font-semibold text-slate-900">
+        <h2 className="text-lg font-bold text-slate-100">
           {opponentName} is reciting
         </h2>
       </div>
-      <p className="text-sm text-slate-700">
+      <p className="text-sm text-slate-400 mb-3">
         You picked {round.surah}:{round.start_ayah}. They have up to 15 seconds.
       </p>
 
       {round.start_ayah_text_uthmani && (
-        <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <div className="bg-slate-800 border border-slate-700 rounded-lg p-4 mb-3">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
             You picked
           </p>
-          <p dir="rtl" className="quran-text text-2xl text-slate-900">
+          <p dir="rtl" className="quran-text text-2xl text-slate-100">
             {round.start_ayah_text_uthmani}
           </p>
         </div>
       )}
 
-      <div className="mt-3 flex items-center gap-3">
+      <div className="flex items-center gap-3">
         <audio
           ref={audioRef}
           autoPlay
@@ -595,7 +581,7 @@ function ListenLivePanel({
         <button
           type="button"
           onClick={() => setMuted((m) => !m)}
-          className="text-xs font-semibold px-2.5 py-1.5 rounded border border-slate-300 text-slate-700 hover:bg-slate-100 whitespace-nowrap"
+          className="text-xs font-semibold px-2.5 py-1.5 rounded border border-slate-700 text-slate-400 hover:bg-slate-800 whitespace-nowrap"
         >
           {muted ? "🔇 Tap to listen" : "🔊 Listening · mute"}
         </button>
@@ -619,18 +605,18 @@ function WaitingPanel({
   startAyahText?: string | null;
 }) {
   return (
-    <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
-      <div className="flex items-center gap-3 mb-1">
+    <section className="bg-slate-900 rounded-xl border border-slate-800 p-5">
+      <div className="flex items-center gap-3 mb-2">
         <span className="inline-block w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse" />
-        <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
+        <h2 className="text-lg font-bold text-slate-100">{title}</h2>
       </div>
-      <p className="text-sm text-slate-700">{body}</p>
+      <p className="text-sm text-slate-400">{body}</p>
       {startAyahText && (
-        <div className="mt-3 bg-slate-50 border border-slate-200 rounded-lg p-4">
+        <div className="mt-3 bg-slate-800 border border-slate-700 rounded-lg p-4">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
             You picked
           </p>
-          <p dir="rtl" className="quran-text text-2xl text-slate-900">
+          <p dir="rtl" className="quran-text text-2xl text-slate-100">
             {startAyahText}
           </p>
         </div>
@@ -678,16 +664,16 @@ function ReviewPanel({
   }
 
   return (
-    <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 space-y-4">
+    <section className="bg-slate-900 rounded-xl border border-slate-800 p-5 space-y-4">
       <div className="flex items-start justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-900">
+        <h2 className="text-lg font-bold text-slate-100 uppercase tracking-wide">
           Round {round.number} — review
         </h2>
         <span
           className={`px-3 py-1 rounded-full text-sm font-bold border ${
             passed
-              ? "bg-emerald-100 text-emerald-900 border-emerald-300"
-              : "bg-red-100 text-red-900 border-red-300"
+              ? "bg-emerald-900/50 text-emerald-300 border-emerald-700"
+              : "bg-red-900/50 text-red-300 border-red-800"
           }`}
         >
           {passed ? "Passed" : "Failed"} · {Math.round(accuracy * 100)}%
@@ -716,7 +702,7 @@ function ReviewPanel({
         </p>
         <p
           dir="rtl"
-          className="quran-text text-2xl bg-slate-50 rounded-lg p-4 border border-slate-200"
+          className="quran-text text-2xl bg-slate-800 rounded-lg p-4 border border-slate-700 text-slate-100"
         >
           {round.target_text}
         </p>
@@ -728,10 +714,10 @@ function ReviewPanel({
         </p>
         <p
           dir="rtl"
-          className="quran-text text-2xl bg-slate-50 rounded-lg p-4 border border-slate-200"
+          className="quran-text text-2xl bg-slate-800 rounded-lg p-4 border border-slate-700 text-slate-100"
         >
           {round.transcript || (
-            <span dir="ltr" className="text-slate-400 font-sans text-base">
+            <span dir="ltr" className="text-slate-500 font-sans text-base">
               (no transcript)
             </span>
           )}
@@ -745,7 +731,7 @@ function ReviewPanel({
               type="button"
               onClick={() => finalize(true)}
               disabled={submitting}
-              className="flex-1 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 rounded-lg py-2.5 font-semibold disabled:opacity-50 transition-colors"
+              className="flex-1 bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-700 rounded-lg py-2.5 font-semibold disabled:opacity-50 transition-colors"
               title="If you think the computer got it wrong"
             >
               Award point to opponent
@@ -755,7 +741,7 @@ function ReviewPanel({
             type="button"
             onClick={() => finalize(false)}
             disabled={submitting}
-            className="flex-1 bg-emerald-600 text-white rounded-lg py-2.5 font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+            className="flex-1 bg-emerald-600 text-white rounded-lg py-2.5 font-semibold hover:bg-emerald-500 disabled:opacity-50 transition-colors"
           >
             {submitting
               ? "Submitting…"
@@ -765,15 +751,15 @@ function ReviewPanel({
           </button>
         </div>
       ) : (
-        <p className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+        <p className="text-sm text-slate-400 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2">
           Waiting for{" "}
-          <span className="font-semibold">{opponentName}</span> to confirm the
+          <span className="font-semibold text-slate-200">{opponentName}</span> to confirm the
           result…
         </p>
       )}
 
       {error && (
-        <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+        <p className="text-sm text-red-400 bg-red-950 border border-red-800 rounded px-3 py-2">
           {error}
         </p>
       )}
@@ -801,33 +787,33 @@ function CompletedView({
   let label: string;
   let cls: string;
   if (myWins > oppWins) {
-    label = "Victory!";
-    cls = "bg-emerald-100 text-emerald-900 border-emerald-300";
+    label = "Victory";
+    cls = "bg-emerald-950 text-emerald-300 border-emerald-700";
   } else if (myWins < oppWins) {
     label = "Defeat";
-    cls = "bg-red-100 text-red-900 border-red-300";
+    cls = "bg-red-950 text-red-300 border-red-800";
   } else {
     label = "Draw";
-    cls = "bg-slate-100 text-slate-900 border-slate-300";
+    cls = "bg-slate-800 text-slate-300 border-slate-700";
   }
 
   return (
-    <section className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 space-y-5">
-      <div className={`rounded-lg border px-4 py-3 ${cls}`}>
-        <h2 className="text-2xl font-bold">{label}</h2>
-        <p className="text-sm mt-0.5">
+    <section className="bg-slate-900 rounded-xl border border-slate-800 p-6 space-y-5">
+      <div className={`rounded-lg border px-4 py-4 ${cls}`}>
+        <h2 className="text-3xl font-black uppercase tracking-wide">{label}</h2>
+        <p className="text-sm mt-1 opacity-80">
           Final score: {myWins} — {oppWins}
         </p>
       </div>
 
       {delta !== null && myAfter !== null && (
-        <div className="bg-slate-50 rounded-lg border border-slate-200 px-4 py-3">
-          <p className="text-sm text-slate-700">
+        <div className="bg-slate-800 rounded-lg border border-slate-700 px-4 py-3">
+          <p className="text-sm text-slate-400">
             ELO:{" "}
-            <span className="font-semibold text-slate-900">{myBefore}</span> →{" "}
-            <span className="font-bold text-slate-900">{myAfter}</span>{" "}
+            <span className="font-semibold text-slate-200">{myBefore}</span> →{" "}
+            <span className="font-bold text-slate-100">{myAfter}</span>{" "}
             <span
-              className={delta > 0 ? "text-emerald-700" : delta < 0 ? "text-red-700" : "text-slate-600"}
+              className={delta > 0 ? "text-emerald-400" : delta < 0 ? "text-red-400" : "text-slate-500"}
             >
               ({delta > 0 ? "+" : ""}
               {delta})
@@ -837,7 +823,7 @@ function CompletedView({
       )}
 
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold text-slate-800 uppercase tracking-wide">
+        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest">
           Round breakdown
         </h3>
         {match.rounds.map((r) => {
@@ -846,21 +832,21 @@ function CompletedView({
           return (
             <div
               key={r.number}
-              className="bg-slate-50 border border-slate-200 rounded px-3 py-2 text-sm"
+              className="bg-slate-800 border border-slate-700 rounded px-3 py-2 text-sm"
             >
               <div className="flex items-center justify-between">
-                <span className="font-medium text-slate-900">
+                <span className="font-medium text-slate-300">
                   R{r.number} — you were{" "}
                   {meWasReciter ? "reciter" : "picker"}{" "}
                   ({r.surah}:{r.start_ayah})
                   {r.overridden && (
-                    <span className="ml-2 text-amber-700 text-xs">
+                    <span className="ml-2 text-amber-400 text-xs">
                       (overridden)
                     </span>
                   )}
                 </span>
                 <span
-                  className={`text-xs font-bold ${iWon ? "text-emerald-700" : "text-red-700"}`}
+                  className={`text-xs font-bold ${iWon ? "text-emerald-400" : "text-red-400"}`}
                 >
                   {iWon ? "WON" : "LOST"} ·{" "}
                   {Math.round((r.accuracy ?? 0) * 100)}%
@@ -880,7 +866,7 @@ function CompletedView({
 
       <Link
         href="/lobby"
-        className="inline-block bg-emerald-600 text-white rounded-lg px-5 py-2.5 font-semibold hover:bg-emerald-700 transition-colors"
+        className="inline-block bg-emerald-600 text-white rounded-lg px-5 py-2.5 font-semibold hover:bg-emerald-500 transition-colors"
       >
         Back to lobby
       </Link>

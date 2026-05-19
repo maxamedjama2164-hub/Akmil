@@ -12,13 +12,8 @@ from app.auth import (
 )
 from app.db import get_db
 from app.models import User
-from app.schemas import AuthResponse, LoginRequest, SignupRequest, UserOut
-from app.services.tiers import (
-    is_valid_juz,
-    is_valid_surah,
-    juz_equivalents_for_ayat,
-    serialize_memorized,
-)
+from app.schemas import AuthResponse, LoginRequest, SignupRequest, UpdateProfileRequest, UserOut
+from app.services.tiers import is_valid_juz, is_valid_surah, serialize_memorized
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -35,10 +30,12 @@ def user_to_out(user: User, request: Request) -> UserOut:
         memorized_juz=sorted(mj),
         memorized_surahs=sorted(ms),
         memorized_ayat_count=ayat_count,
-        juz_equivalent=round(juz_equivalents_for_ayat(ayat_count), 2),
+        juz_equivalent=round(quran.compute_juz_equivalent(mj, ms), 2),
         rating=user.rating,
         games_played=user.games_played,
         created_at=user.created_at,
+        bio=user.bio,
+        avatar_data=user.avatar_data,
     )
 
 
@@ -105,4 +102,32 @@ def me(
     request: Request,
     current: Annotated[User, Depends(get_current_user)],
 ) -> UserOut:
+    return user_to_out(current, request)
+
+
+@router.patch("/me", response_model=UserOut)
+def update_me(
+    payload: UpdateProfileRequest,
+    request: Request,
+    current: Annotated[User, Depends(get_current_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> UserOut:
+    if payload.display_name is not None:
+        current.display_name = payload.display_name.strip()
+    if payload.memorized_juz is not None:
+        memorized_juz = {int(j) for j in payload.memorized_juz}
+        if not all(is_valid_juz(j) for j in memorized_juz):
+            raise HTTPException(400, detail="memorized_juz contains values outside 1..30")
+        current.memorized_juz = memorized_juz
+    if payload.memorized_surahs is not None:
+        memorized_surahs = {int(s) for s in payload.memorized_surahs}
+        if not all(is_valid_surah(s) for s in memorized_surahs):
+            raise HTTPException(400, detail="memorized_surahs contains values outside 1..114")
+        current.memorized_surahs = memorized_surahs
+    if payload.bio is not None:
+        current.bio = payload.bio.strip() or None
+    if payload.avatar_data is not None:
+        current.avatar_data = payload.avatar_data or None
+    db.commit()
+    db.refresh(current)
     return user_to_out(current, request)

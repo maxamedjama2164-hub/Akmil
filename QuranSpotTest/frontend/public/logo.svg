@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <defs>
+    <linearGradient id="g" x1="100" y1="20" x2="100" y2="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#86efac"/>
+      <stop offset="55%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+  </defs>
+  <!-- Outer arc: ~300° counterclockwise, gap at top-right -->
+  <path d="M 138,35 A 75,75 0 1 0 138,165"
+        stroke="url(#g)" stroke-width="10" stroke-linecap="round"/>
+  <!-- Inner arc: ~300° counterclockwise -->
+  <path d="M 122,55 A 52,52 0 1 0 122,145"
+        stroke="url(#g)" stroke-width="8" stroke-linecap="round"/>
+  <!-- Right chevron pointing inward -->
+  <path d="M 118,80 L 152,100 L 118,120"
+        stroke="url(#g)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

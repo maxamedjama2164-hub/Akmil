@@ -7,8 +7,13 @@
 }
 
 :root {
-  --background: #f8fafc; /* slate-50 */
-  --foreground: #0f172a; /* slate-900 */
+  --background: #0b0f1a;
+  --foreground: #f1f5f9;
+}
+
+html.light {
+  --background: #f8fafc;
+  --foreground: #0f172a;
 }
 
 body {
@@ -16,6 +21,35 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
 }
+
+/* ── Light mode overrides ──────────────────────────────────────────── */
+html.light nav {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: #e2e8f0 !important;
+}
+html.light .bg-slate-900 { background-color: #ffffff !important; }
+html.light .bg-slate-900\/95 { background-color: rgba(255,255,255,0.95) !important; }
+html.light .bg-slate-800 { background-color: #f1f5f9 !important; }
+html.light .bg-slate-700 { background-color: #e2e8f0 !important; }
+html.light .border-slate-800 { border-color: #e2e8f0 !important; }
+html.light .border-slate-700 { border-color: #cbd5e1 !important; }
+html.light .border-slate-600 { border-color: #94a3b8 !important; }
+html.light .text-slate-100 { color: #0f172a !important; }
+html.light .text-slate-200 { color: #1e293b !important; }
+html.light .text-slate-300 { color: #334155 !important; }
+html.light .text-slate-400 { color: #475569 !important; }
+html.light .text-slate-500 { color: #64748b !important; }
+html.light .text-slate-600 { color: #94a3b8 !important; }
+html.light .bg-emerald-950 { background-color: #ecfdf5 !important; }
+html.light .bg-emerald-950\/60 { background-color: rgba(236,253,245,0.8) !important; }
+html.light .border-emerald-800 { border-color: #6ee7b7 !important; }
+html.light .bg-red-950 { background-color: #fff1f2 !important; }
+html.light .border-red-800 { border-color: #fca5a5 !important; }
+html.light .bg-amber-900\/40 { background-color: rgba(255,251,235,0.9) !important; }
+html.light .bg-purple-900\/40 { background-color: rgba(250,245,255,0.9) !important; }
+html.light .bg-blue-900\/40 { background-color: rgba(239,246,255,0.9) !important; }
+html.light .placeholder\:text-slate-600::placeholder { color: #94a3b8 !important; }
+html.light .ring-slate-700 { --tw-ring-color: #cbd5e1 !important; }
 
 /* Arabic text utility — picks the Naskh font and tunes spacing/line-height for
    long ayat. Use on any RTL Quranic text container. */

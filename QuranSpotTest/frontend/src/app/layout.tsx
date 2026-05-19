@@ -20,8 +20,8 @@ const naskh = Noto_Naskh_Arabic({
 });
 
 export const metadata: Metadata = {
-  title: "QuranSpot",
-  description: "1v1 Quran spot-testing with ELO ratings",
+  title: "Akmil · أكمل",
+  description: "1v1 Quran recitation challenge with ELO ratings",
 };
 
 export default function RootLayout({
@@ -34,7 +34,15 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${naskh.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900">
+      <head>
+        {/* Apply saved theme before first paint to avoid flash */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('akmil_theme');if(t==='light')document.documentElement.classList.add('light');}catch(e){}})();`,
+          }}
+        />
+      </head>
+      <body className="min-h-full flex flex-col" style={{ background: "var(--background)", color: "var(--foreground)" }}>
         {children}
       </body>
     </html>

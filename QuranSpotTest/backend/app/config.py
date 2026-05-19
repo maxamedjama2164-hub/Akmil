@@ -16,13 +16,22 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_hours: int = 24 * 7
 
-    # IJyad/whisper-large-v3-Tarteel — community fine-tune of OpenAI's
-    # whisper-large-v3 (~1.5B params) on Tarteel's Everyayah dataset.
-    # ~2–3% WER vs ~6% on the smaller tarteel-ai/whisper-base-ar-quran.
-    # Trade-off: ~3GB on disk, ~5–10× slower than base on CPU.
-    whisper_model_id: str = "IJyad/whisper-large-v3-Tarteel"
+    # Fallback HuggingFace model ID used when whisper_ct2_path doesn't exist.
+    # Must be a pre-converted CTranslate2 model (Systran/faster-whisper-* namespace).
+    # The Tarteel fine-tune lives at tarteel-ai/whisper-base-ar-quran but needs
+    # converting first — run scripts/convert_tarteel_model.py.
+    whisper_model_id: str = "base"
+
+    # Path to the local CTranslate2 Tarteel model produced by convert_tarteel_model.py.
+    # If this directory exists, it takes priority over whisper_model_id.
+    whisper_ct2_path: Path = ROOT / "data" / "tarteel-base-ct2"
 
     cors_origins: list[str] = ["http://localhost:3000"]
+
+    # Quran.Foundation API — OAuth2 client credentials
+    quran_client_id: str | None = None
+    quran_client_secret: str | None = None
+    quran_oauth_endpoint: str = "https://oauth2.quran.foundation"
 
 
 settings = Settings()

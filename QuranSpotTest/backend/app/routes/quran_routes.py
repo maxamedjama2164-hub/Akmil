@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from app.services.quran_foundation_api import get_verse_info
+
 router = APIRouter(prefix="/api/quran", tags=["quran"])
 
 
@@ -47,3 +49,28 @@ def list_ayat(
             for a in ayat
         ],
     }
+
+
+@router.get("/surah/{n}/similarity")
+def surah_similarity(request: Request, n: int) -> dict[str, str]:
+    """Return sparse {ayah_number: "repeated"|"similar"} for a surah.
+
+    Only ayat with a non-null status are included.
+    """
+    if not (1 <= n <= 114):
+        raise HTTPException(status_code=400, detail="surah out of range (1..114)")
+    return {str(k): v for k, v in request.app.state.similarity.surah_statuses(n).items()}
+
+
+@router.get("/verse/{surah}/{ayah}/info")
+async def verse_info(surah: int, ayah: int) -> dict:
+    """Fetch per-verse enrichment from the Quran Foundation API (quran.com v4).
+
+    Returns English translation (Saheeh International), Mushaf page, juz,
+    hizb, and sajdah type.
+    """
+    if not (1 <= surah <= 114):
+        raise HTTPException(status_code=400, detail="surah out of range")
+    if ayah < 1:
+        raise HTTPException(status_code=400, detail="ayah must be >= 1")
+    return await get_verse_info(surah, ayah)

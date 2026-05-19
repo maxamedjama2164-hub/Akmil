@@ -6,6 +6,15 @@ We shell out to ffmpeg via stdin/stdout pipes — no temp files needed.
 
 from __future__ import annotations
 
+import os as _os
+import pathlib as _pathlib
+
+# Ensure ~/.local/bin is on PATH so a ffmpeg installed there without root
+# is found by ffmpeg-python's subprocess calls.
+_local_bin = str(_pathlib.Path.home() / ".local" / "bin")
+if _local_bin not in _os.environ.get("PATH", ""):
+    _os.environ["PATH"] = _local_bin + _os.pathsep + _os.environ.get("PATH", "")
+
 import ffmpeg
 import numpy as np
 
