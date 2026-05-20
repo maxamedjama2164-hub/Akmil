@@ -17,14 +17,15 @@ export default function SignupPage() {
   const [memorizedJuz, setMemorizedJuz] = useState<number[]>([]);
   const [memorizedSurahs, setMemorizedSurahs] = useState<number[]>([]);
   const [surahs, setSurahs] = useState<SurahMeta[]>([]);
+  const [surahsStatus, setSurahsStatus] = useState<"loading" | "ready" | "failed">("loading");
   const [coverage, setCoverage] = useState<CoverageResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
-    api.surahs().then(setSurahs).catch(() => {
-      /* signup still works without surah list */
-    });
+    api.surahs()
+      .then((s) => { setSurahs(s); setSurahsStatus("ready"); })
+      .catch(() => setSurahsStatus("failed"));
   }, []);
 
   useEffect(() => {
@@ -145,8 +146,12 @@ export default function SignupPage() {
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1.5">
               Individual surahs (optional)
             </p>
-            {surahs.length === 0 ? (
+            {surahsStatus === "loading" ? (
               <p className="text-sm text-slate-500">Loading surahs…</p>
+            ) : surahsStatus === "failed" ? (
+              <p className="text-sm text-slate-500">
+                Server unreachable — select juz&apos; above for now. You can add individual surahs from your profile after signing up.
+              </p>
             ) : (
               <SurahPicker
                 surahs={surahs}

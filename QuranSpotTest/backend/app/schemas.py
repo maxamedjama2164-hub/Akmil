@@ -166,13 +166,16 @@ class SoloPickResponse(BaseModel):
     number_choices: list[int] = []           # for guess_ayah_number
 
     # ── mutashabih mode ────────────────────────────────────────────────────────
-    # Show ayah_text_uthmani (from above); user identifies which of two locations it belongs to.
-    peer_text_uthmani: str | None = None    # the other similar ayah for context
+    # preceding_ayah_text_uthmani: shown as context — the ayah that came just before
+    # ayah_text_uthmani (above): the CORRECT next ayah (one of the two similar options)
+    # peer_text_uthmani: the WRONG option — similar but belongs to a different location
+    preceding_ayah_text_uthmani: str | None = None
+    peer_text_uthmani: str | None = None
     peer_surah_number: int | None = None
     peer_ayah_number: int | None = None
     peer_surah_name_en: str | None = None
     peer_surah_name_ar: str | None = None
-    similarity_type: str | None = None     # "repeated" | "similar"
+    similarity_type: str | None = None     # "similar" only (repeated pairs excluded)
 
 
 class UpdateProfileRequest(BaseModel):

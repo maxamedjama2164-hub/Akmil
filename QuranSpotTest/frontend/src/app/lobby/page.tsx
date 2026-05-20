@@ -253,7 +253,7 @@ const CHALLENGE_OPTIONS: { type: ChallengeType; label: string; desc: string }[] 
   { type: "guess_surah",        label: "Guess Surah",     desc: "Which surah is this from?" },
   { type: "guess_ayah_number",  label: "Guess Ayah #",    desc: "What is this ayah's number?" },
   { type: "guess_surah_number", label: "Guess Surah #",   desc: "What is this surah's number?" },
-  { type: "mutashabih",         label: "Mutashabihaat",   desc: "Identify the similar/repeated ayah" },
+  { type: "mutashabih",         label: "Mutashabihaat",   desc: "Which similar ayah comes next?" },
   { type: "mix",                label: "Mix",             desc: "Random challenge each round" },
 ];
 
@@ -679,11 +679,23 @@ function MutashabihPanel({
   const correctKey = `${pick.correct_surah_number}:${pick.correct_ayah_number}`;
   const peerKey = `${pick.peer_surah_number}:${pick.peer_ayah_number}`;
 
-  // Stable shuffle — determined once per pick, not on every render.
+  // Stable shuffle per pick.
   const options = useMemo(() => {
     const opts = [
-      { key: correctKey, surahNum: pick.correct_surah_number, ayahNum: pick.correct_ayah_number, nameEn: pick.correct_surah_name_en, nameAr: pick.correct_surah_name_ar },
-      { key: peerKey,    surahNum: pick.peer_surah_number,    ayahNum: pick.peer_ayah_number,    nameEn: pick.peer_surah_name_en,    nameAr: pick.peer_surah_name_ar },
+      {
+        key: correctKey,
+        text: pick.ayah_text_uthmani,
+        surahNum: pick.correct_surah_number,
+        ayahNum: pick.correct_ayah_number,
+        nameEn: pick.correct_surah_name_en,
+      },
+      {
+        key: peerKey,
+        text: pick.peer_text_uthmani,
+        surahNum: pick.peer_surah_number,
+        ayahNum: pick.peer_ayah_number,
+        nameEn: pick.peer_surah_name_en,
+      },
     ];
     return Math.random() < 0.5 ? opts : [opts[1], opts[0]];
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -692,60 +704,56 @@ function MutashabihPanel({
   return (
     <section className="bg-slate-900 rounded-xl border border-slate-800 p-5 space-y-5">
       <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-        {pick.similarity_type === "repeated" ? "Repeated ayah" : "Similar ayah"} — where does THIS one belong?
+        Mutashabihaat — similar ayahs
       </p>
 
-      {/* The ayah to identify */}
-      <p dir="rtl" className="quran-text text-2xl bg-slate-800 rounded-lg p-4 border border-slate-700 text-slate-100 leading-loose">
-        {pick.ayah_text_uthmani}
+      {/* Preceding ayah as context */}
+      <div>
+        <p className="text-xs text-slate-500 mb-1.5">This ayah was just recited:</p>
+        <p dir="rtl" className="quran-text text-xl bg-slate-800 rounded-lg p-4 border border-slate-700 text-slate-300 leading-loose">
+          {pick.preceding_ayah_text_uthmani}
+        </p>
+      </div>
+
+      <p className="text-sm font-semibold text-slate-200">
+        Which of these two similar ayahs comes next?
       </p>
 
-      <p className="text-sm font-semibold text-slate-300">Which surah is this ayah from?</p>
-
-      {/* Binary choice */}
-      <div className="grid grid-cols-1 gap-2">
+      {/* Two options — each shows full text so the user can spot the difference */}
+      <div className="space-y-2">
         {options.map((opt) => {
           const isCorrect = opt.key === correctKey;
           const isSelected = answer?.selected === opt.key;
-          let cls = "border border-slate-700 bg-slate-800 text-slate-200 hover:border-emerald-600 hover:bg-slate-700";
+          let cls = "border border-slate-700 bg-slate-800 hover:border-emerald-600 hover:bg-slate-700/80";
           if (answer) {
-            if (isCorrect)       cls = "border border-emerald-500 bg-emerald-900/50 text-emerald-300";
-            else if (isSelected) cls = "border border-red-500 bg-red-900/50 text-red-300";
-            else                  cls = "border border-slate-700 bg-slate-800 text-slate-500 opacity-60";
+            if (isCorrect)       cls = "border-2 border-emerald-500 bg-emerald-900/40";
+            else if (isSelected) cls = "border-2 border-red-500 bg-red-900/40";
+            else                  cls = "border border-slate-700 bg-slate-800 opacity-40";
           }
           return (
             <button
               key={opt.key}
               disabled={!!answer}
               onClick={() => onGuess(opt.key)}
-              className={`rounded-xl px-4 py-4 text-left transition-colors disabled:cursor-default ${cls}`}
+              className={`w-full rounded-xl p-4 text-left transition-colors disabled:cursor-default ${cls}`}
             >
-              <span className="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-1">
-                {opt.surahNum}. {opt.nameEn}
+              <span className="text-xs font-bold text-slate-400 block mb-2">
+                {opt.nameEn} · {opt.surahNum}:{opt.ayahNum}
               </span>
-              <span dir="rtl" className="font-arabic text-lg block text-current">
-                {opt.nameAr} ({opt.surahNum}:{opt.ayahNum})
-              </span>
+              <p dir="rtl" className="quran-text text-xl text-slate-100 leading-loose">
+                {opt.text}
+              </p>
             </button>
           );
         })}
       </div>
 
-      {/* The similar peer — shown after answer for learning */}
       {answer && (
         <div className="space-y-3">
           <div className={`rounded-lg px-4 py-3 border text-sm font-semibold ${answer.correct ? "bg-emerald-900/50 border-emerald-700 text-emerald-300" : "bg-red-900/50 border-red-800 text-red-300"}`}>
             {answer.correct
-              ? `Correct! It's from ${pick.correct_surah_name_en} (${pick.correct_surah_number}:${pick.correct_ayah_number}).`
-              : `Wrong. It's from ${pick.correct_surah_name_en} (${pick.correct_surah_number}:${pick.correct_ayah_number}).`}
-          </div>
-          <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 space-y-2">
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
-              The {pick.similarity_type === "repeated" ? "other occurrence" : "similar ayah"} ({pick.peer_surah_name_en} {pick.peer_surah_number}:{pick.peer_ayah_number}):
-            </p>
-            <p dir="rtl" className="quran-text text-xl text-slate-300 leading-loose">
-              {pick.peer_text_uthmani}
-            </p>
+              ? `Correct! The next ayah is ${pick.correct_surah_name_en} (${pick.correct_surah_number}:${pick.correct_ayah_number}).`
+              : `Wrong. The next ayah is ${pick.correct_surah_name_en} (${pick.correct_surah_number}:${pick.correct_ayah_number}).`}
           </div>
           <button onClick={onNext} className="w-full bg-emerald-600 text-white rounded-lg py-2.5 font-semibold hover:bg-emerald-500 transition-colors">
             Next challenge →

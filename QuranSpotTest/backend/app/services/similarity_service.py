@@ -79,10 +79,20 @@ class SimilarityService:
 
     def random_similar_pair(
         self,
+        similar_only: bool = False,
     ) -> tuple[tuple[int, int], tuple[int, int], Literal["repeated", "similar"]] | None:
-        """Return a random ((s1,n1), (s2,n2), kind) pair, or None if index is empty."""
-        # Prefer repeated pairs (more instructive), fall back to similar.
-        for pool, kind in ((self._repeated, "repeated"), (self._similar, "similar")):
+        """Return a random ((s1,n1), (s2,n2), kind) pair, or None if index is empty.
+
+        similar_only=True skips repeated (identical) pairs and only returns
+        genuinely near-duplicate pairs — useful for challenges where showing
+        identical text as both options would be nonsensical.
+        """
+        pools: list[tuple[dict, str]] = (
+            [(self._similar, "similar")]
+            if similar_only
+            else [(self._repeated, "repeated"), (self._similar, "similar")]
+        )
+        for pool, kind in pools:
             if pool:
                 (s1, n1), peers = random.choice(list(pool.items()))
                 s2, n2 = random.choice(peers)

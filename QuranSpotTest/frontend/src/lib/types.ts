@@ -163,8 +163,9 @@ export type SoloPickQuiz = {
 
 export type SoloPickMutashabih = {
   challenge_type: "mutashabih";
-  ayah_text_uthmani: string;       // the ayah being shown — user identifies its location
-  peer_text_uthmani: string;        // the similar ayah (for context)
+  preceding_ayah_text_uthmani: string; // context: the ayah that came just before
+  ayah_text_uthmani: string;            // correct answer — the next ayah
+  peer_text_uthmani: string;            // wrong option — similar but different location
   correct_surah_number: number;
   correct_surah_name_en: string;
   correct_surah_name_ar: string;
@@ -173,7 +174,7 @@ export type SoloPickMutashabih = {
   peer_ayah_number: number;
   peer_surah_name_en: string;
   peer_surah_name_ar: string;
-  similarity_type: "repeated" | "similar";
+  similarity_type: "similar";
 };
 
 export type SoloPick = SoloPickRecite | SoloPickQuiz | SoloPickMutashabih;

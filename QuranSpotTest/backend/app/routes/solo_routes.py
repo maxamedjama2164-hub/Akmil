@@ -175,55 +175,75 @@ def random_pick(
 
     if challenge_type == "mutashabih":
         similarity = request.app.state.similarity
-        pair = similarity.random_similar_pair()
+
+        # Find a "similar" (non-identical) pair where at least one member has a
+        # preceding ayah (number > 1) so we can use it as context.
+        pair = None
+        for _ in range(10):
+            candidate = similarity.random_similar_pair(similar_only=True)
+            if candidate is None:
+                break
+            (cs1, cn1), (cs2, cn2), _ = candidate
+            if cn1 > 1 or cn2 > 1:
+                pair = candidate
+                break
+
         if pair is None:
-            raise HTTPException(503, detail="similarity index not ready")
+            raise HTTPException(503, detail="no eligible mutashabih pair found")
 
-        (s1, n1), (s2, n2), kind = pair
+        (s1, n1), (s2, n2), _ = pair
 
-        # The main conn was already closed above — open a fresh one for the
-        # two mutashabih row lookups.
+        # Choose which member becomes the answer (needs number > 1).
+        # If both qualify, pick randomly for variety.
+        if n1 > 1 and n2 > 1:
+            if random.random() < 0.5:
+                answer_s, answer_n, other_s, other_n = s1, n1, s2, n2
+            else:
+                answer_s, answer_n, other_s, other_n = s2, n2, s1, n1
+        elif n1 > 1:
+            answer_s, answer_n, other_s, other_n = s1, n1, s2, n2
+        else:
+            answer_s, answer_n, other_s, other_n = s2, n2, s1, n1
+
         conn2 = _open_db()
         try:
-            r1 = conn2.execute(
-                "SELECT a.text_uthmani, s.name_en, s.name_ar "
-                "FROM ayah a JOIN surah s ON s.id = a.surah "
+            prec = conn2.execute(
+                "SELECT a.text_uthmani FROM ayah a "
                 "WHERE a.surah = ? AND a.number = ?",
-                (s1, n1),
+                (answer_s, answer_n - 1),
             ).fetchone()
-            r2 = conn2.execute(
+            r_answer = conn2.execute(
                 "SELECT a.text_uthmani, s.name_en, s.name_ar "
                 "FROM ayah a JOIN surah s ON s.id = a.surah "
                 "WHERE a.surah = ? AND a.number = ?",
-                (s2, n2),
+                (answer_s, answer_n),
+            ).fetchone()
+            r_other = conn2.execute(
+                "SELECT a.text_uthmani, s.name_en, s.name_ar "
+                "FROM ayah a JOIN surah s ON s.id = a.surah "
+                "WHERE a.surah = ? AND a.number = ?",
+                (other_s, other_n),
             ).fetchone()
         finally:
             conn2.close()
 
-        if r1 is None or r2 is None:
+        if prec is None or r_answer is None or r_other is None:
             raise HTTPException(503, detail="ayah data unavailable for mutashabih pair")
-
-        # Randomly show one as the question; the other is the peer
-        if random.random() < 0.5:
-            question_s, question_n, question_r = s1, n1, r1
-            peer_s, peer_n, peer_r = s2, n2, r2
-        else:
-            question_s, question_n, question_r = s2, n2, r2
-            peer_s, peer_n, peer_r = s1, n1, r1
 
         return SoloPickResponse(
             challenge_type="mutashabih",
-            ayah_text_uthmani=question_r["text_uthmani"],
-            correct_surah_number=question_s,
-            correct_surah_name_en=question_r["name_en"],
-            correct_surah_name_ar=question_r["name_ar"],
-            correct_ayah_number=question_n,
-            peer_text_uthmani=peer_r["text_uthmani"],
-            peer_surah_number=peer_s,
-            peer_ayah_number=peer_n,
-            peer_surah_name_en=peer_r["name_en"],
-            peer_surah_name_ar=peer_r["name_ar"],
-            similarity_type=kind,
+            preceding_ayah_text_uthmani=prec["text_uthmani"],
+            ayah_text_uthmani=r_answer["text_uthmani"],
+            correct_surah_number=answer_s,
+            correct_surah_name_en=r_answer["name_en"],
+            correct_surah_name_ar=r_answer["name_ar"],
+            correct_ayah_number=answer_n,
+            peer_text_uthmani=r_other["text_uthmani"],
+            peer_surah_number=other_s,
+            peer_ayah_number=other_n,
+            peer_surah_name_en=r_other["name_en"],
+            peer_surah_name_ar=r_other["name_ar"],
+            similarity_type="similar",
         )
 
     raise HTTPException(400, detail="unhandled challenge_type")
