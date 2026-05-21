@@ -13,6 +13,7 @@ import logging
 import random
 import re
 import sqlite3
+import threading
 from collections import defaultdict
 from pathlib import Path
 from typing import Literal
@@ -37,19 +38,27 @@ class SimilarityService:
         self._cache = cache_path or db_path.parent / "similarity.json"
         self._repeated: dict[tuple[int, int], list[list[int]]] = {}
         self._similar: dict[tuple[int, int], list[list[int]]] = {}
+        self._ready = False
 
         if self._cache.exists():
             log.info("Loading similarity cache from %s", self._cache)
             self._load()
+            self._ready = True
         else:
-            log.info("Computing ayah similarity index (one-time, may take ~30s) …")
-            self._compute(db_path)
-            self._save()
-            log.info(
-                "Similarity index ready: %d repeated, %d similar",
-                len(self._repeated),
-                len(self._similar),
-            )
+            log.info("Computing ayah similarity index in background (~30s) …")
+            threading.Thread(
+                target=self._compute_and_save, args=(db_path,), daemon=True
+            ).start()
+
+    def _compute_and_save(self, db_path: Path) -> None:
+        self._compute(db_path)
+        self._save()
+        self._ready = True
+        log.info(
+            "Similarity index ready: %d repeated, %d similar",
+            len(self._repeated),
+            len(self._similar),
+        )
 
     # ── Public ────────────────────────────────────────────────────────────────
 
@@ -87,6 +96,8 @@ class SimilarityService:
         genuinely near-duplicate pairs — useful for challenges where showing
         identical text as both options would be nonsensical.
         """
+        if not self._ready:
+            return None
         pools: list[tuple[dict, str]] = (
             [(self._similar, "similar")]
             if similar_only
