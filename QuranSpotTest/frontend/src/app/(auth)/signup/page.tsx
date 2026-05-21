@@ -70,7 +70,11 @@ export default function SignupPage() {
       setToken(res.token);
       router.replace("/lobby");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Signup failed");
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError("Cannot reach the server — the backend may be starting up, wait 30 seconds and try again.");
+      }
     } finally {
       setPending(false);
     }
