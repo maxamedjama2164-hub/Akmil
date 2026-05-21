@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NavBar } from "@/components/NavBar";
 import { Recorder } from "@/components/Recorder";
 import { ApiError, api, getToken, setToken } from "@/lib/api";
+import { getAudioEnabled, getReciter, setAudioEnabled as saveAudioEnabled, setReciter as saveReciter } from "@/lib/prefs";
 import type {
   ChallengeType,
   Invite,
@@ -304,8 +305,8 @@ function SoloPractice({ user }: { user: User }) {
   const [mutashabihAnswer, setMutashabihAnswer] = useState<{ selected: string; correct: boolean } | null>(null);
   const [error, setError]         = useState<string | null>(null);
   const [streak, setStreak]       = useState(0);
-  const [audioEnabled, setAudioEnabled] = useState(true);
-  const [reciter, setReciter]     = useState<ReciterId>("Alafasy_128kbps");
+  const [audioEnabled, setAudioEnabled] = useState<boolean>(() => getAudioEnabled());
+  const [reciter, setReciter]     = useState<ReciterId>(() => getReciter() as ReciterId);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Auto-play when a new pick is ready
@@ -442,7 +443,7 @@ function SoloPractice({ user }: { user: User }) {
       {/* Audio controls */}
       <div className="flex items-center gap-2 flex-wrap px-1">
         <button
-          onClick={() => setAudioEnabled((v) => !v)}
+          onClick={() => setAudioEnabled((v) => { saveAudioEnabled(!v); return !v; })}
           className={`text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg border transition-colors ${
             audioEnabled
               ? "bg-emerald-900/50 border-emerald-700 text-emerald-400"
@@ -455,7 +456,7 @@ function SoloPractice({ user }: { user: User }) {
           <>
             <select
               value={reciter}
-              onChange={(e) => setReciter(e.target.value as ReciterId)}
+              onChange={(e) => { const v = e.target.value as ReciterId; saveReciter(v); setReciter(v); }}
               className="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             >
               {RECITERS.map((r) => (

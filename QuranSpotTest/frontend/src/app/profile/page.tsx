@@ -8,9 +8,17 @@ import { JuzPicker } from "@/components/JuzPicker";
 import { NavBar } from "@/components/NavBar";
 import { SurahPicker } from "@/components/SurahPicker";
 import { ApiError, api, getToken, setToken } from "@/lib/api";
+import { getAudioEnabled, getReciter, setAudioEnabled as saveAudioEnabled, setReciter as saveReciter } from "@/lib/prefs";
 import type { SurahMeta, User } from "@/lib/types";
 
 const AVATAR_COLOR_KEY = (id: number) => `akmil_avatar_${id}`;
+
+const RECITERS = [
+  { id: "Alafasy_128kbps",             label: "Alafasy" },
+  { id: "AbdulBaset_Murattal_128kbps", label: "Abdul Basit" },
+  { id: "Maher_Al_Muaiqly_128kbps",   label: "Maher Al-Muaiqly" },
+  { id: "Minshawy_Murattal_128kbps",  label: "Al-Minshawy" },
+] as const;
 
 function eloTitle(rating: number) {
   if (rating >= 2000) return { label: "Grand Hafiz", color: "text-amber-300 bg-amber-900/40 border-amber-600" };
@@ -60,6 +68,10 @@ export default function ProfilePage() {
   // theme
   const [theme, setThemeState] = useState<"dark" | "light">("dark");
 
+  // audio prefs (localStorage)
+  const [audioEnabled, setAudioEnabledState] = useState(true);
+  const [reciter, setReciterState] = useState("Alafasy_128kbps");
+
   // bio
   const [bio, setBio] = useState("");
   const [bioSaving, setBioSaving] = useState(false);
@@ -89,6 +101,8 @@ export default function ProfilePage() {
         if (stored !== null) setColorIdx(Number(stored));
         const savedTheme = localStorage.getItem("akmil_theme");
         if (savedTheme === "light") setThemeState("light");
+        setAudioEnabledState(getAudioEnabled());
+        setReciterState(getReciter());
       })
       .catch(() => router.replace("/login"));
   }, [router]);
@@ -430,6 +444,66 @@ export default function ProfilePage() {
           >
             {memSaving ? "Saving…" : "Save memorized Quran"}
           </button>
+        </section>
+
+        {/* ── Audio & Recitation ────────────────────────────────── */}
+        <section className="bg-slate-900 rounded-xl border border-slate-800 p-5 space-y-4">
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">
+              Audio &amp; Recitation
+            </h2>
+            <p className="text-xs text-slate-600 mt-0.5">
+              Controls auto-play during solo practice. Saved on this device.
+            </p>
+          </div>
+
+          {/* Auto-play toggle */}
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-600 mb-2">
+              Auto-play ayah when challenge loads
+            </p>
+            <div className="flex gap-2">
+              {[true, false].map((val) => (
+                <button
+                  key={String(val)}
+                  type="button"
+                  onClick={() => { saveAudioEnabled(val); setAudioEnabledState(val); }}
+                  className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                    audioEnabled === val
+                      ? val
+                        ? "bg-emerald-900/50 border-emerald-600 text-emerald-300"
+                        : "bg-slate-700 border-slate-500 text-slate-200"
+                      : "bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300"
+                  }`}
+                >
+                  {val ? "On" : "Off"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Reciter selector */}
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-600 mb-2">
+              Default reciter
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              {RECITERS.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => { saveReciter(r.id); setReciterState(r.id); }}
+                  className={`py-2.5 px-3 rounded-lg text-sm font-semibold border text-left transition-colors ${
+                    reciter === r.id
+                      ? "bg-emerald-900/50 border-emerald-600 text-emerald-300"
+                      : "bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500"
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </section>
 
         {/* ── Account ───────────────────────────────────────────── */}
