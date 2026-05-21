@@ -24,6 +24,39 @@ type QueueState =
   | { kind: "idle" }
   | { kind: "queueing"; position: number; elapsedMs: number };
 
+/* ── Audio helpers ──────────────────────────────────────────────────────────── */
+
+const RECITERS = [
+  { id: "Alafasy_128kbps",             label: "Alafasy" },
+  { id: "AbdulBaset_Murattal_128kbps", label: "Abdul Basit" },
+  { id: "Maher_Al_Muaiqly_128kbps",   label: "Maher Al-Muaiqly" },
+  { id: "Minshawy_Murattal_128kbps",  label: "Al-Minshawy" },
+] as const;
+
+type ReciterId = (typeof RECITERS)[number]["id"];
+
+function getAudioUrl(reciter: string, surah: number, ayah: number): string {
+  return `https://everyayah.com/data/${reciter}/${String(surah).padStart(3, "0")}${String(ayah).padStart(3, "0")}.mp3`;
+}
+
+function getAudioUrlForPick(pick: SoloPick, reciter: string): string | null {
+  switch (pick.challenge_type) {
+    case "recite":
+      return getAudioUrl(reciter, pick.surah, pick.start_ayah);
+    case "guess_surah":
+    case "guess_ayah_number":
+    case "guess_surah_number":
+      return getAudioUrl(reciter, pick.correct_surah_number, pick.correct_ayah_number);
+    case "mutashabih":
+      if (pick.correct_ayah_number <= 1) return null;
+      return getAudioUrl(reciter, pick.correct_surah_number, pick.correct_ayah_number - 1);
+    default:
+      return null;
+  }
+}
+
+/* ── Page ───────────────────────────────────────────────────────────────────── */
+
 export default function LobbyPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -271,6 +304,34 @@ function SoloPractice({ user }: { user: User }) {
   const [mutashabihAnswer, setMutashabihAnswer] = useState<{ selected: string; correct: boolean } | null>(null);
   const [error, setError]         = useState<string | null>(null);
   const [streak, setStreak]       = useState(0);
+  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [reciter, setReciter]     = useState<ReciterId>("Alafasy_128kbps");
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Auto-play when a new pick is ready
+  useEffect(() => {
+    if (!audioEnabled || phase.kind !== "ready") return;
+    const url = getAudioUrlForPick(phase.pick, reciter);
+    if (!url) return;
+    audioRef.current?.pause();
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    audio.play().catch(() => {});
+    return () => { audio.pause(); };
+  }, [phase, audioEnabled, reciter]);
+
+  // Stop audio when leaving solo practice
+  useEffect(() => () => { audioRef.current?.pause(); }, []);
+
+  function playCurrentAudio() {
+    if (phase.kind !== "ready") return;
+    const url = getAudioUrlForPick(phase.pick, reciter);
+    if (!url) return;
+    audioRef.current?.pause();
+    const audio = new Audio(url);
+    audioRef.current = audio;
+    audio.play().catch(() => {});
+  }
 
   const pickNext = useCallback(async (type: ChallengeType) => {
     setError(null);
@@ -366,7 +427,7 @@ function SoloPractice({ user }: { user: User }) {
       {/* Header row with mode name + streak */}
       <div className="flex items-center justify-between px-1">
         <button
-          onClick={() => { setPhase({ kind: "selecting" }); setAnswer(null); setStreak(0); }}
+          onClick={() => { audioRef.current?.pause(); setPhase({ kind: "selecting" }); setAnswer(null); setStreak(0); }}
           className="text-xs text-slate-500 hover:text-slate-300 uppercase tracking-widest font-bold flex items-center gap-1"
         >
           ← {CHALLENGE_OPTIONS.find((o) => o.type === challengeType)?.label ?? "Practice"}
@@ -375,6 +436,41 @@ function SoloPractice({ user }: { user: User }) {
           <span className="text-xs font-bold text-emerald-400 bg-emerald-950 border border-emerald-800 rounded-full px-2.5 py-0.5">
             {streak} streak
           </span>
+        )}
+      </div>
+
+      {/* Audio controls */}
+      <div className="flex items-center gap-2 flex-wrap px-1">
+        <button
+          onClick={() => setAudioEnabled((v) => !v)}
+          className={`text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg border transition-colors ${
+            audioEnabled
+              ? "bg-emerald-900/50 border-emerald-700 text-emerald-400"
+              : "bg-slate-800 border-slate-700 text-slate-500"
+          }`}
+        >
+          {audioEnabled ? "Audio ON" : "Audio OFF"}
+        </button>
+        {audioEnabled && (
+          <>
+            <select
+              value={reciter}
+              onChange={(e) => setReciter(e.target.value as ReciterId)}
+              className="text-xs bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-slate-300 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              {RECITERS.map((r) => (
+                <option key={r.id} value={r.id}>{r.label}</option>
+              ))}
+            </select>
+            {phase.kind === "ready" && (
+              <button
+                onClick={playCurrentAudio}
+                className="text-xs font-semibold text-slate-400 hover:text-slate-200 border border-slate-700 rounded-lg px-3 py-1.5 transition-colors"
+              >
+                ▶ Replay
+              </button>
+            )}
+          </>
         )}
       </div>
 
@@ -559,22 +655,24 @@ function QuizPanel({
 
       {/* Result reveal */}
       {answer && (
-        <div className={`rounded-lg px-4 py-3 border text-sm font-semibold ${answer.correct ? "bg-emerald-900/50 border-emerald-700 text-emerald-300" : "bg-red-900/50 border-red-800 text-red-300"}`}>
-          {answer.correct ? "Correct!" : (
-            <>
-              Wrong.{" "}
-              {pick.challenge_type === "guess_ayah_number"
-                ? `It's ayah ${pick.correct_ayah_number}.`
-                : `It's ${pick.correct_surah_name_en} (${pick.correct_surah_number}:${pick.correct_ayah_number}).`}
-            </>
-          )}
+        <div className="space-y-3">
+          <div className={`rounded-lg px-4 py-3 border text-sm font-semibold ${answer.correct ? "bg-emerald-900/50 border-emerald-700 text-emerald-300" : "bg-red-900/50 border-red-800 text-red-300"}`}>
+            {answer.correct ? "Correct!" : "Wrong."}
+          </div>
+          <div className="bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 space-y-1">
+            <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1.5">Answer</p>
+            <p className="text-slate-100 font-bold">{pick.correct_surah_name_en}</p>
+            <p dir="rtl" className="font-arabic text-lg text-slate-300 leading-loose">{pick.correct_surah_name_ar}</p>
+            <p className="text-sm text-slate-400 pt-0.5">
+              Surah <span className="font-bold text-slate-300">{pick.correct_surah_number}</span>
+              {" · "}
+              Ayah <span className="font-bold text-slate-300">{pick.correct_ayah_number}</span>
+            </p>
+          </div>
+          <button onClick={onNext} className="w-full bg-emerald-600 text-white rounded-lg py-2.5 font-semibold hover:bg-emerald-500 transition-colors">
+            Next challenge →
+          </button>
         </div>
-      )}
-
-      {answer && (
-        <button onClick={onNext} className="w-full bg-emerald-600 text-white rounded-lg py-2.5 font-semibold hover:bg-emerald-500 transition-colors">
-          Next challenge →
-        </button>
       )}
     </section>
   );
@@ -688,6 +786,7 @@ function MutashabihPanel({
         surahNum: pick.correct_surah_number,
         ayahNum: pick.correct_ayah_number,
         nameEn: pick.correct_surah_name_en,
+        nameAr: pick.correct_surah_name_ar,
       },
       {
         key: peerKey,
@@ -695,6 +794,7 @@ function MutashabihPanel({
         surahNum: pick.peer_surah_number,
         ayahNum: pick.peer_ayah_number,
         nameEn: pick.peer_surah_name_en,
+        nameAr: pick.peer_surah_name_ar,
       },
     ];
     return Math.random() < 0.5 ? opts : [opts[1], opts[0]];
@@ -719,7 +819,7 @@ function MutashabihPanel({
         Which of these two similar ayahs comes next?
       </p>
 
-      {/* Two options — each shows full text so the user can spot the difference */}
+      {/* Two options — surah info hidden until after answer */}
       <div className="space-y-2">
         {options.map((opt) => {
           const isCorrect = opt.key === correctKey;
@@ -737,9 +837,18 @@ function MutashabihPanel({
               onClick={() => onGuess(opt.key)}
               className={`w-full rounded-xl p-4 text-left transition-colors disabled:cursor-default ${cls}`}
             >
-              <span className="text-xs font-bold text-slate-400 block mb-2">
-                {opt.nameEn} · {opt.surahNum}:{opt.ayahNum}
-              </span>
+              {/* Reveal full info only after answering */}
+              {answer && (
+                <div className="mb-2 pb-2 border-b border-slate-600/50">
+                  <span className="text-sm font-bold text-slate-200 block">{opt.nameEn}</span>
+                  <span dir="rtl" className="font-arabic text-base text-slate-400 block leading-loose">{opt.nameAr}</span>
+                  <span className="text-xs text-slate-500">
+                    Surah <span className="font-bold text-slate-400">{opt.surahNum}</span>
+                    {" · "}
+                    Ayah <span className="font-bold text-slate-400">{opt.ayahNum}</span>
+                  </span>
+                </div>
+              )}
               <p dir="rtl" className="quran-text text-xl text-slate-100 leading-loose">
                 {opt.text}
               </p>
@@ -751,9 +860,7 @@ function MutashabihPanel({
       {answer && (
         <div className="space-y-3">
           <div className={`rounded-lg px-4 py-3 border text-sm font-semibold ${answer.correct ? "bg-emerald-900/50 border-emerald-700 text-emerald-300" : "bg-red-900/50 border-red-800 text-red-300"}`}>
-            {answer.correct
-              ? `Correct! The next ayah is ${pick.correct_surah_name_en} (${pick.correct_surah_number}:${pick.correct_ayah_number}).`
-              : `Wrong. The next ayah is ${pick.correct_surah_name_en} (${pick.correct_surah_number}:${pick.correct_ayah_number}).`}
+            {answer.correct ? "Correct!" : "Wrong."}
           </div>
           <button onClick={onNext} className="w-full bg-emerald-600 text-white rounded-lg py-2.5 font-semibold hover:bg-emerald-500 transition-colors">
             Next challenge →
