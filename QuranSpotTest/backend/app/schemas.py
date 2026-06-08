@@ -151,9 +151,6 @@ class SoloPickResponse(BaseModel):
 
     # ── quiz modes (shown to user) ─────────────────────────────────────────────
     ayah_text_uthmani: str | None = None
-    # shown for guess_ayah_number only (user needs to know which surah):
-    quiz_surah_name_en: str | None = None
-    quiz_surah_name_ar: str | None = None
 
     # ── correct answers (sent to client — this is a practice app, not a test) ──
     correct_surah_number: int | None = None

@@ -619,16 +619,11 @@ function QuizPanel({
       ? "Which surah is this from?"
       : pick.challenge_type === "guess_surah_number"
       ? "What is the surah number?"
-      : "What is the ayah number in this surah?";
+      : "What is this ayah's number?";
 
   return (
     <section className="bg-slate-900 rounded-xl border border-slate-800 p-5 space-y-5">
       {/* Ayah text */}
-      {pick.challenge_type === "guess_ayah_number" && pick.quiz_surah_name_en && (
-        <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
-          From: {pick.quiz_surah_name_en}
-        </p>
-      )}
       <p dir="rtl" className="quran-text text-2xl bg-slate-800 rounded-lg p-4 border border-slate-700 text-slate-100 leading-loose">
         {pick.ayah_text_uthmani}
       </p>

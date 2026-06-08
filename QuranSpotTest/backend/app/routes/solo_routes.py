@@ -41,8 +41,8 @@ def _all_surahs(conn) -> list[tuple[int, str, str, int]]:
     return [(r["id"], r["name_en"], r["name_ar"], r["ayat_count"]) for r in rows]
 
 
-def _pick_memorized_ayah(conn, mj: set[int], ms: set[int], exclude_last: bool = True) -> sqlite3.Row | None:
-    """Pick a random ayah from the user's memorized set."""
+def _memorized_where(mj: set[int], ms: set[int]) -> tuple[str, list]:
+    """Return (WHERE clause fragment, params) that restricts to the memorized set."""
     clauses, params = [], []
     if mj:
         ph = ",".join(["?"] * len(mj))
@@ -52,7 +52,24 @@ def _pick_memorized_ayah(conn, mj: set[int], ms: set[int], exclude_last: bool = 
         ph = ",".join(["?"] * len(ms))
         clauses.append(f"a.surah IN ({ph})")
         params.extend(sorted(ms))
-    where = " OR ".join(clauses)
+    return " OR ".join(clauses), params
+
+
+def _is_memorized(conn, surah: int, number: int, mj: set[int], ms: set[int]) -> bool:
+    """Return True if the given ayah is within the user's memorized set."""
+    if surah in ms:
+        return True
+    if not mj:
+        return False
+    row = conn.execute(
+        "SELECT juz FROM ayah WHERE surah = ? AND number = ?", (surah, number)
+    ).fetchone()
+    return row is not None and row["juz"] in mj
+
+
+def _pick_memorized_ayah(conn, mj: set[int], ms: set[int], exclude_last: bool = True) -> sqlite3.Row | None:
+    """Pick a random ayah from the user's memorized set."""
+    where, params = _memorized_where(mj, ms)
     last_exc = "AND NOT (a.surah = 114 AND a.number = 6)" if exclude_last else ""
     sql = (
         "SELECT a.surah, a.number, a.text_uthmani, a.juz, "
@@ -163,9 +180,6 @@ def random_pick(
         return SoloPickResponse(
             challenge_type="guess_ayah_number",
             ayah_text_uthmani=text_uthmani,
-            # Surah name IS shown — user only needs to guess the number
-            quiz_surah_name_en=name_en,
-            quiz_surah_name_ar=name_ar,
             correct_surah_number=correct_surah,
             correct_surah_name_en=name_en,
             correct_surah_name_ar=name_ar,
@@ -175,41 +189,61 @@ def random_pick(
 
     if challenge_type == "mutashabih":
         similarity = request.app.state.similarity
+        conn2 = _open_db()
+        try:
+            pair = None
+            for _ in range(40):
+                candidate = similarity.random_similar_pair(similar_only=True)
+                if candidate is None:
+                    break
+                (cs1, cn1), (cs2, cn2), _ = candidate
 
-        # Find a "similar" (non-identical) pair where at least one member has a
-        # preceding ayah (number > 1) so we can use it as context.
-        pair = None
-        for _ in range(10):
-            candidate = similarity.random_similar_pair(similar_only=True)
-            if candidate is None:
-                break
-            (cs1, cn1), (cs2, cn2), _ = candidate
-            if cn1 > 1 or cn2 > 1:
+                # Issue 2: both ayahs must be within the user's memorized range
+                if not _is_memorized(conn2, cs1, cn1, mj, ms):
+                    continue
+                if not _is_memorized(conn2, cs2, cn2, mj, ms):
+                    continue
+
+                # Need at least one with a preceding ayah for context
+                if cn1 <= 1 and cn2 <= 1:
+                    continue
+
+                # Issue 3: verify the display texts are genuinely different
+                t1 = conn2.execute(
+                    "SELECT text_uthmani FROM ayah WHERE surah=? AND number=?", (cs1, cn1)
+                ).fetchone()
+                t2 = conn2.execute(
+                    "SELECT text_uthmani FROM ayah WHERE surah=? AND number=?", (cs2, cn2)
+                ).fetchone()
+                if t1 is None or t2 is None:
+                    continue
+                if t1["text_uthmani"] == t2["text_uthmani"]:
+                    continue
+
                 pair = candidate
                 break
 
-        if pair is None:
-            raise HTTPException(503, detail="no eligible mutashabih pair found")
+            if pair is None:
+                raise HTTPException(
+                    503,
+                    detail="no mutashabih pair found in your memorized range — try memorizing more Quran",
+                )
 
-        (s1, n1), (s2, n2), _ = pair
+            (s1, n1), (s2, n2), _ = pair
 
-        # Choose which member becomes the answer (needs number > 1).
-        # If both qualify, pick randomly for variety.
-        if n1 > 1 and n2 > 1:
-            if random.random() < 0.5:
+            # Choose which member becomes the answer (needs number > 1).
+            if n1 > 1 and n2 > 1:
+                if random.random() < 0.5:
+                    answer_s, answer_n, other_s, other_n = s1, n1, s2, n2
+                else:
+                    answer_s, answer_n, other_s, other_n = s2, n2, s1, n1
+            elif n1 > 1:
                 answer_s, answer_n, other_s, other_n = s1, n1, s2, n2
             else:
                 answer_s, answer_n, other_s, other_n = s2, n2, s1, n1
-        elif n1 > 1:
-            answer_s, answer_n, other_s, other_n = s1, n1, s2, n2
-        else:
-            answer_s, answer_n, other_s, other_n = s2, n2, s1, n1
 
-        conn2 = _open_db()
-        try:
             prec = conn2.execute(
-                "SELECT a.text_uthmani FROM ayah a "
-                "WHERE a.surah = ? AND a.number = ?",
+                "SELECT text_uthmani FROM ayah WHERE surah = ? AND number = ?",
                 (answer_s, answer_n - 1),
             ).fetchone()
             r_answer = conn2.execute(

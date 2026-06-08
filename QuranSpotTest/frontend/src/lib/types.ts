@@ -148,9 +148,6 @@ export type SoloPickRecite = {
 export type SoloPickQuiz = {
   challenge_type: "guess_surah" | "guess_ayah_number" | "guess_surah_number";
   ayah_text_uthmani: string;
-  // shown to user only for guess_ayah_number:
-  quiz_surah_name_en: string | null;
-  quiz_surah_name_ar: string | null;
   // correct answers:
   correct_surah_number: number;
   correct_surah_name_en: string;
