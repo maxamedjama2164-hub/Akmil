@@ -15,15 +15,15 @@ frontend/.turbo/
 *.tsbuildinfo
 
 # Runtime / generated
-data/app.sqlite
-data/app.sqlite-journal
-data/app.sqlite-wal
-data/app.sqlite-shm
-data/recordings/*
-!data/recordings/.gitkeep
+backend/data/app.sqlite
+backend/data/app.sqlite-journal
+backend/data/app.sqlite-wal
+backend/data/app.sqlite-shm
+backend/data/recordings/*
+!backend/data/recordings/.gitkeep
 
 # Large generated / model files — not source code
-data/tarteel-base-ct2/
+backend/data/tarteel-base-ct2/
 
 # Env
 .env

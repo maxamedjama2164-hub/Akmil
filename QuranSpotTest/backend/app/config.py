@@ -2,7 +2,7 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class Settings(BaseSettings):
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     # If this directory exists, it takes priority over whisper_model_id.
     whisper_ct2_path: Path = ROOT / "data" / "tarteel-base-ct2"
 
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = ["*"]
 
     # Quran.Foundation API — OAuth2 client credentials
     quran_client_id: str | None = None
