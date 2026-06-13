@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Noto_Naskh_Arabic } from "next/font/google";
 
 import "./globals.css";
@@ -22,6 +22,13 @@ const naskh = Noto_Naskh_Arabic({
 export const metadata: Metadata = {
   title: "Akmil · أكمل",
   description: "1v1 Quran recitation challenge with ELO ratings",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#0b0f1a",
 };
 
 export default function RootLayout({

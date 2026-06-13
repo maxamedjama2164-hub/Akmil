@@ -313,7 +313,7 @@ export default function ProfilePage() {
                     key={i}
                     type="button"
                     onClick={() => pickColor(i)}
-                    className={`w-8 h-8 rounded-full ring-2 transition-all ${
+                    className={`w-10 h-10 rounded-full ring-2 transition-all ${
                       colorIdx === i ? "ring-white scale-110" : "ring-transparent hover:ring-slate-500"
                     }`}
                     style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}

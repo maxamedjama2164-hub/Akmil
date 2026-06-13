@@ -81,7 +81,7 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
+    <main className="min-h-dvh flex items-center justify-center p-6">
       <form
         onSubmit={onSubmit}
         className="w-full max-w-2xl bg-slate-900 p-6 rounded-xl border border-slate-800 space-y-5"

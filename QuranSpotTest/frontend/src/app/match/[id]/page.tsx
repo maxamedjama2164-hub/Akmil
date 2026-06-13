@@ -120,7 +120,7 @@ export default function MatchPage({
   const currentRound = match.rounds.find((r) => !r.finalized) ?? null;
 
   return (
-    <main className="min-h-screen p-4 md:p-6 max-w-6xl mx-auto">
+    <main className="min-h-dvh p-4 md:p-6 max-w-6xl mx-auto">
       {/* Header */}
       <header className="flex justify-between items-center mb-4">
         <Link

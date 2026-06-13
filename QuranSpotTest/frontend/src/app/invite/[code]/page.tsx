@@ -55,7 +55,7 @@ export default function InvitePage({
 
   if (error) {
     return (
-      <main className="min-h-screen flex items-center justify-center p-6">
+      <main className="min-h-dvh flex items-center justify-center p-6">
         <div className="max-w-md w-full bg-white rounded-lg shadow-sm border border-slate-200 p-6 space-y-3">
           <h1 className="text-xl font-bold text-slate-900">Invite unavailable</h1>
           <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
@@ -77,7 +77,7 @@ export default function InvitePage({
   const isOwnInvite = invite.challenger_id === me.id;
 
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
+    <main className="min-h-dvh flex items-center justify-center p-6">
       <div className="max-w-md w-full bg-white rounded-lg shadow-sm border border-slate-200 p-6 space-y-4">
         <h1 className="text-2xl font-bold text-slate-900">
           You&apos;ve been challenged

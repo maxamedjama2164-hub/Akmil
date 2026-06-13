@@ -68,7 +68,8 @@ export default function LeaderboardPage() {
 
         {/* Rest of the board */}
         {rest.length > 0 && (
-          <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+          <div className="overflow-x-auto rounded-xl border border-slate-800">
+          <div className="bg-slate-900 overflow-hidden min-w-[360px]">
             <div className="grid grid-cols-[2.5rem_1fr_5rem_4.5rem_4.5rem] gap-x-3 px-4 py-2 border-b border-slate-800">
               <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">#</span>
               <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">Player</span>
@@ -101,6 +102,7 @@ export default function LeaderboardPage() {
                 </span>
               </div>
             ))}
+          </div>
           </div>
         )}
 

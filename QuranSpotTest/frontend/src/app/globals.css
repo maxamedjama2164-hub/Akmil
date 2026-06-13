@@ -22,6 +22,11 @@ body {
   font-family: var(--font-sans), system-ui, sans-serif;
 }
 
+/* Remove 300ms tap delay on all interactive elements */
+a, button, input, select, textarea, [role="button"] {
+  touch-action: manipulation;
+}
+
 /* ── Light mode overrides ──────────────────────────────────────────── */
 html.light nav {
   background-color: rgba(255, 255, 255, 0.95) !important;

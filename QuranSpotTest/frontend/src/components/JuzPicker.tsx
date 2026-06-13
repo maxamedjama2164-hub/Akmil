@@ -33,7 +33,7 @@ export function JuzPicker({ value, onChange }: Props) {
               className={`py-2 rounded text-sm font-medium border transition-colors ${
                 on
                   ? "bg-emerald-600 text-white border-emerald-700"
-                  : "bg-white text-slate-700 border-slate-300 hover:border-emerald-400 hover:bg-emerald-50"
+                  : "bg-slate-800 text-slate-300 border-slate-700 hover:border-emerald-500 hover:text-emerald-400"
               }`}
             >
               {j}
@@ -61,8 +61,8 @@ export function JuzPicker({ value, onChange }: Props) {
         />
       </div>
 
-      <div className="text-sm bg-slate-50 border border-slate-200 rounded px-3 py-2 text-slate-700">
-        <span className="font-semibold text-slate-900">{value.length}</span>{" "}
+      <div className="text-sm bg-slate-800 border border-slate-700 rounded px-3 py-2 text-slate-400">
+        <span className="font-semibold text-slate-200">{value.length}</span>{" "}
         of 30 juz&apos; selected
       </div>
     </div>
@@ -80,7 +80,7 @@ function QuickButton({
     <button
       type="button"
       onClick={onClick}
-      className="px-2.5 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-100"
+      className="px-2.5 py-1.5 rounded border border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200 transition-colors"
     >
       {label}
     </button>
