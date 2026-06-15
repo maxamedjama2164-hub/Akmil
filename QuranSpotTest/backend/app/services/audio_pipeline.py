@@ -9,20 +9,28 @@ from __future__ import annotations
 import os as _os
 import pathlib as _pathlib
 
-# 1. Try imageio-ffmpeg (bundled static binary — works on Railway/Linux with no
-#    system ffmpeg installed).
-try:
-    from imageio_ffmpeg import get_ffmpeg_exe as _get_ffmpeg_exe
-    _ffmpeg_dir = str(_pathlib.Path(_get_ffmpeg_exe()).parent)
-    if _ffmpeg_dir not in _os.environ.get("PATH", ""):
-        _os.environ["PATH"] = _ffmpeg_dir + _os.pathsep + _os.environ.get("PATH", "")
-except Exception:
-    pass
-
-# 2. Also add ~/.local/bin as a fallback (covers manual installs on Linux).
+# Add ~/.local/bin at import time (fast, no download).
 _local_bin = str(_pathlib.Path.home() / ".local" / "bin")
 if _local_bin not in _os.environ.get("PATH", ""):
     _os.environ["PATH"] = _local_bin + _os.pathsep + _os.environ.get("PATH", "")
+
+_ffmpeg_path_ready = False
+
+
+def _ensure_ffmpeg() -> None:
+    """Add imageio-ffmpeg binary to PATH on first decode call (lazy — avoids
+    a ~70 MB download at startup that would block the healthcheck)."""
+    global _ffmpeg_path_ready
+    if _ffmpeg_path_ready:
+        return
+    try:
+        from imageio_ffmpeg import get_ffmpeg_exe as _get_exe  # type: ignore[import]
+        _dir = str(_pathlib.Path(_get_exe()).parent)
+        if _dir not in _os.environ.get("PATH", ""):
+            _os.environ["PATH"] = _dir + _os.pathsep + _os.environ.get("PATH", "")
+    except Exception:
+        pass
+    _ffmpeg_path_ready = True
 
 import ffmpeg
 import numpy as np
@@ -34,6 +42,7 @@ class AudioDecodeError(RuntimeError):
 
 def decode_to_pcm(audio_bytes: bytes) -> np.ndarray:
     """Decode an audio blob to a 16 kHz mono float32 array in [-1.0, 1.0]."""
+    _ensure_ffmpeg()
     if not audio_bytes:
         raise AudioDecodeError("empty audio")
     try:
