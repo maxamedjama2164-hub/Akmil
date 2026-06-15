@@ -9,8 +9,17 @@ from __future__ import annotations
 import os as _os
 import pathlib as _pathlib
 
-# Ensure ~/.local/bin is on PATH so a ffmpeg installed there without root
-# is found by ffmpeg-python's subprocess calls.
+# 1. Try imageio-ffmpeg (bundled static binary — works on Railway/Linux with no
+#    system ffmpeg installed).
+try:
+    from imageio_ffmpeg import get_ffmpeg_exe as _get_ffmpeg_exe
+    _ffmpeg_dir = str(_pathlib.Path(_get_ffmpeg_exe()).parent)
+    if _ffmpeg_dir not in _os.environ.get("PATH", ""):
+        _os.environ["PATH"] = _ffmpeg_dir + _os.pathsep + _os.environ.get("PATH", "")
+except Exception:
+    pass
+
+# 2. Also add ~/.local/bin as a fallback (covers manual installs on Linux).
 _local_bin = str(_pathlib.Path.home() / ".local" / "bin")
 if _local_bin not in _os.environ.get("PATH", ""):
     _os.environ["PATH"] = _local_bin + _os.pathsep + _os.environ.get("PATH", "")
